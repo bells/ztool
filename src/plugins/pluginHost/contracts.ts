@@ -54,9 +54,11 @@ export interface PluginContributionSetting {
 
 export type StatusBarIconId =
   | "zero"
+  | "launch"
   | "caffeine-empty"
   | "caffeine-full"
   | "screenshot"
+  | "paper"
   | "extension";
 
 export type StatusBarActionType =

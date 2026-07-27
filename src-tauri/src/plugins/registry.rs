@@ -488,7 +488,18 @@ fn bundled_bing_wallpaper_record() -> PluginRecord {
                 },
             ]),
             settings: None,
-            status_bar_items: None,
+            status_bar_items: Some(vec![PluginContributionStatusBarItem {
+                id: "zero.paper.status".into(),
+                title: "Zero Paper".into(),
+                icon: StatusBarIconId::Paper,
+                active_icon: None,
+                action: StatusBarAction {
+                    action_type: StatusBarActionType::OpenPlugin,
+                    command_id: None,
+                },
+                order: Some(30),
+                visible_by_default: Some(true),
+            }]),
         }),
     })
 }
@@ -528,7 +539,18 @@ fn bundled_quick_launcher_record() -> PluginRecord {
                 },
             ]),
             settings: None,
-            status_bar_items: None,
+            status_bar_items: Some(vec![PluginContributionStatusBarItem {
+                id: "zero.launch.status".into(),
+                title: "Zero Launch".into(),
+                icon: StatusBarIconId::Launch,
+                active_icon: None,
+                action: StatusBarAction {
+                    action_type: StatusBarActionType::OpenPlugin,
+                    command_id: None,
+                },
+                order: Some(40),
+                visible_by_default: Some(true),
+            }]),
         }),
     })
 }

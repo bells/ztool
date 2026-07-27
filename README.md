@@ -172,7 +172,9 @@ node --test tests/pluginHostService.test.mjs tests/pluginHostModel.test.mjs test
 pnpm exec tsc src/plugins/bingWallpaper/contracts.ts src/plugins/bingWallpaper/bingWallpaperModel.ts src/plugins/bingWallpaper/bingWallpaperController.ts src/plugins/bingWallpaper/bingWallpaperServiceCore.ts --module ES2020 --moduleResolution bundler --target ES2022 --outDir /private/tmp/zero-bing-wallpaper-test --noEmit false --skipLibCheck
 node --test tests/bingWallpaperModel.test.mjs tests/bingWallpaperController.test.mjs tests/bingWallpaperService.test.mjs
 pnpm exec tsc src/plugins/quickLauncher/contracts.ts src/plugins/quickLauncher/quickLauncherModel.ts src/plugins/quickLauncher/quickLauncherServiceCore.ts --module ES2020 --moduleResolution bundler --target ES2022 --rootDir src/plugins/quickLauncher --outDir /private/tmp/zero-quick-launcher-test --noEmit false --skipLibCheck
+pnpm exec tsc src/components/statusBarIconSources.ts src/plugins/pluginHost/contracts.ts --module ES2020 --moduleResolution bundler --target ES2022 --rootDir src --outDir /private/tmp/zero-status-bar-icons-test --noEmit false --skipLibCheck
 node --test tests/quickLauncherModel.test.mjs tests/quickLauncherService.test.mjs
+node --test tests/statusBarIconSources.test.mjs
 pnpm build
 cd src-tauri && cargo check && cargo test
 cargo test --release --test quick_launcher_benchmark -- --ignored --nocapture

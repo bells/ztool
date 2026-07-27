@@ -137,6 +137,18 @@ export const BUNDLED_PLUGIN_MANIFESTS: PluginManifest[] = [
           title: "Download Bing wallpaper",
         },
       ],
+      statusBarItems: [
+        {
+          id: "zero.paper.status",
+          title: "Zero Paper",
+          icon: "paper",
+          action: {
+            type: "open-plugin",
+          },
+          order: 30,
+          visibleByDefault: true,
+        },
+      ],
     },
   },
   {
@@ -171,6 +183,18 @@ export const BUNDLED_PLUGIN_MANIFESTS: PluginManifest[] = [
         {
           id: "zero.launch.refresh",
           title: "Refresh application index",
+        },
+      ],
+      statusBarItems: [
+        {
+          id: "zero.launch.status",
+          title: "Zero Launch",
+          icon: "launch",
+          action: {
+            type: "open-plugin",
+          },
+          order: 40,
+          visibleByDefault: true,
         },
       ],
     },

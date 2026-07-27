@@ -70,6 +70,8 @@ test("bundled manifests declare views commands permissions and platforms", () =>
 test("bundled manifests declare host-mediated status bar items", () => {
   const screenshot = BUNDLED_PLUGIN_MANIFESTS[0];
   const caffeine = BUNDLED_PLUGIN_MANIFESTS[1];
+  const paper = BUNDLED_PLUGIN_MANIFESTS[2];
+  const launch = BUNDLED_PLUGIN_MANIFESTS[3];
 
   assert.deepEqual(screenshot.contributes.statusBarItems, [
     {
@@ -95,6 +97,30 @@ test("bundled manifests declare host-mediated status bar items", () => {
         commandId: "zero.awake.toggle",
       },
       order: 10,
+      visibleByDefault: true,
+    },
+  ]);
+  assert.deepEqual(paper.contributes.statusBarItems, [
+    {
+      id: "zero.paper.status",
+      title: "Zero Paper",
+      icon: "paper",
+      action: {
+        type: "open-plugin",
+      },
+      order: 30,
+      visibleByDefault: true,
+    },
+  ]);
+  assert.deepEqual(launch.contributes.statusBarItems, [
+    {
+      id: "zero.launch.status",
+      title: "Zero Launch",
+      icon: "launch",
+      action: {
+        type: "open-plugin",
+      },
+      order: 40,
       visibleByDefault: true,
     },
   ]);

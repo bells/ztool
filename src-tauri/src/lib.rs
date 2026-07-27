@@ -150,9 +150,12 @@ pub fn run() {
 
             let last_tray_toggle_at = Arc::new(Mutex::new(None::<std::time::Instant>));
             let last_tray_toggle_at_tray = last_tray_toggle_at.clone();
+            let primary_status_bar_icon = services::status_bar::primary_status_bar_icon_image()
+                .map_err(std::io::Error::other)?;
 
             let _tray = TrayIconBuilder::with_id(brand::PRIMARY_STATUS_ITEM_ID)
-                .icon(app.default_window_icon().unwrap().clone())
+                .icon(primary_status_bar_icon)
+                .icon_as_template(true)
                 .tooltip(brand::PRODUCT_NAME)
                 .show_menu_on_left_click(false)
                 .on_tray_icon_event(move |tray, event| {

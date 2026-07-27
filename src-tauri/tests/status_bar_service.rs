@@ -8,8 +8,8 @@ use zero_lib::plugins::contracts::{
 };
 use zero_lib::services::status_bar::{
     load_status_bar_settings, native_status_item_creation_order, normalize_status_bar_items,
-    save_status_bar_settings, status_bar_action_effects, StatusBarActionEffect, StatusBarSettings,
-    StatusBarSupport,
+    save_status_bar_settings, status_bar_action_effects, status_bar_icon_png_bytes,
+    StatusBarActionEffect, StatusBarSettings, StatusBarSupport,
 };
 
 fn plugin_record(name: &str, enabled: bool, order: Option<u32>) -> PluginRecord {
@@ -254,5 +254,62 @@ fn status_bar_open_plugin_action_shows_main_window_before_selecting_plugin() {
             StatusBarActionEffect::ShowMainWindow,
             StatusBarActionEffect::EmitOpenPlugin("market-tool".into()),
         ],
+    );
+}
+
+#[test]
+fn status_bar_icon_ids_keep_existing_names_and_add_first_party_variants() {
+    let cases = [
+        ("zero", StatusBarIconId::Zero),
+        ("launch", StatusBarIconId::Launch),
+        ("caffeine-empty", StatusBarIconId::CaffeineEmpty),
+        ("caffeine-full", StatusBarIconId::CaffeineFull),
+        ("screenshot", StatusBarIconId::Screenshot),
+        ("paper", StatusBarIconId::Paper),
+        ("extension", StatusBarIconId::Extension),
+    ];
+
+    for (serialized, expected) in cases {
+        let parsed: StatusBarIconId = serde_json::from_str(&format!("\"{serialized}\"")).unwrap();
+        assert_eq!(parsed, expected);
+        assert_eq!(
+            serde_json::to_string(&parsed).unwrap(),
+            format!("\"{serialized}\"")
+        );
+    }
+}
+
+#[test]
+fn status_bar_icon_assets_are_transparent_monochrome_rgba() {
+    let icons = [
+        StatusBarIconId::Zero,
+        StatusBarIconId::Launch,
+        StatusBarIconId::CaffeineEmpty,
+        StatusBarIconId::CaffeineFull,
+        StatusBarIconId::Screenshot,
+        StatusBarIconId::Paper,
+        StatusBarIconId::Extension,
+    ];
+
+    for icon in icons {
+        let image = image::load_from_memory(status_bar_icon_png_bytes(&icon)).unwrap();
+        assert_eq!((image.width(), image.height()), (18, 18), "{icon:?}");
+
+        let rgba = image.to_rgba8();
+        assert!(rgba.pixels().any(|pixel| pixel.0[3] == 0), "{icon:?}");
+        assert!(rgba.pixels().any(|pixel| pixel.0[3] > 0), "{icon:?}");
+        assert!(
+            rgba.pixels()
+                .all(|pixel| pixel.0[0] == pixel.0[1] && pixel.0[1] == pixel.0[2]),
+            "{icon:?}",
+        );
+    }
+}
+
+#[test]
+fn status_bar_awake_state_uses_distinct_canonical_derivatives() {
+    assert_ne!(
+        status_bar_icon_png_bytes(&StatusBarIconId::CaffeineEmpty),
+        status_bar_icon_png_bytes(&StatusBarIconId::CaffeineFull),
     );
 }

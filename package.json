@@ -8,7 +8,12 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "icons:validate": "node scripts/icon-system.mjs validate",
+    "icons:contact-sheet": "node scripts/icon-system.mjs contact-sheet",
+    "icons:generate-tray": "node scripts/icon-system.mjs generate-tray",
+    "icons:generate-app": "node scripts/icon-system.mjs generate-app",
+    "test:icons": "node --test tests/iconSystem.test.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

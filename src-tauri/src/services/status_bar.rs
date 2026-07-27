@@ -510,7 +510,7 @@ fn sync_native_plugin_items(
         let id = native_tray_id(&item.id);
         let action = item.action.clone();
         let plugin_name = item.plugin_name.clone();
-        let icon = status_bar_icon_image(&item.icon);
+        let icon = status_bar_icon_image(&item.icon)?;
         let title = item.title.clone();
         let app_for_event = app.clone();
 
@@ -548,7 +548,7 @@ fn native_tray_id(item_id: &str) -> String {
 
 fn sync_primary_status_item(app: &tauri::AppHandle) -> Result<(), String> {
     TrayIconBuilder::with_id(PRIMARY_STATUS_ITEM_ID)
-        .icon(status_bar_icon_image(&StatusBarIconId::Zero))
+        .icon(status_bar_icon_image(&StatusBarIconId::Zero)?)
         .icon_as_template(true)
         .tooltip(PRODUCT_NAME)
         .show_menu_on_left_click(false)
@@ -588,92 +588,29 @@ fn toggle_caffeine_from_status_bar(app: tauri::AppHandle) -> Result<(), String> 
     Ok(())
 }
 
-fn status_bar_icon_image(icon: &StatusBarIconId) -> Image<'static> {
-    let mut canvas = IconCanvas::new(18, 18);
+fn status_bar_icon_image(icon: &StatusBarIconId) -> Result<Image<'static>, String> {
+    let decoded = image::load_from_memory(status_bar_icon_png_bytes(icon))
+        .map_err(|error| format!("failed to decode status bar icon {icon:?}: {error}"))?
+        .to_rgba8();
+    let (width, height) = decoded.dimensions();
+    Ok(Image::new_owned(decoded.into_raw(), width, height))
+}
+
+pub fn primary_status_bar_icon_image() -> Result<Image<'static>, String> {
+    status_bar_icon_image(&StatusBarIconId::Zero)
+}
+
+pub fn status_bar_icon_png_bytes(icon: &StatusBarIconId) -> &'static [u8] {
     match icon {
-        StatusBarIconId::Zero => {
-            canvas.fill_rect(4, 4, 10, 2);
-            canvas.fill_rect(12, 6, 2, 2);
-            canvas.fill_rect(10, 8, 2, 2);
-            canvas.fill_rect(8, 10, 2, 2);
-            canvas.fill_rect(6, 12, 2, 2);
-            canvas.fill_rect(4, 14, 10, 2);
-        }
-        StatusBarIconId::Screenshot => {
-            canvas.stroke_rect(3, 4, 12, 10);
-            canvas.fill_rect(7, 2, 4, 2);
-            canvas.fill_rect(7, 8, 4, 2);
-        }
-        StatusBarIconId::CaffeineEmpty => {
-            canvas.stroke_rect(4, 6, 8, 7);
-            canvas.stroke_rect(12, 8, 3, 3);
-            canvas.fill_rect(5, 13, 9, 1);
-        }
+        StatusBarIconId::Zero => include_bytes!("../../icons/tray/zero.png"),
+        StatusBarIconId::Launch => include_bytes!("../../icons/tray/zero-launch.png"),
+        StatusBarIconId::CaffeineEmpty => include_bytes!("../../icons/tray/zero-awake.png"),
         StatusBarIconId::CaffeineFull => {
-            canvas.stroke_rect(4, 6, 8, 7);
-            canvas.fill_rect(5, 8, 6, 4);
-            canvas.stroke_rect(12, 8, 3, 3);
-            canvas.fill_rect(5, 13, 9, 1);
+            include_bytes!("../../icons/tray/zero-awake-active.png")
         }
-        StatusBarIconId::Extension => {
-            canvas.fill_rect(4, 4, 4, 4);
-            canvas.fill_rect(10, 4, 4, 4);
-            canvas.fill_rect(4, 10, 4, 4);
-            canvas.fill_rect(10, 10, 4, 4);
-        }
-    }
-
-    Image::new_owned(canvas.into_rgba(), 18, 18)
-}
-
-struct IconCanvas {
-    width: usize,
-    height: usize,
-    rgba: Vec<u8>,
-}
-
-impl IconCanvas {
-    fn new(width: usize, height: usize) -> Self {
-        Self {
-            width,
-            height,
-            rgba: vec![0; width * height * 4],
-        }
-    }
-
-    fn into_rgba(self) -> Vec<u8> {
-        self.rgba
-    }
-
-    fn fill_rect(&mut self, x: usize, y: usize, width: usize, height: usize) {
-        for yy in y..y.saturating_add(height) {
-            for xx in x..x.saturating_add(width) {
-                self.set_pixel(xx, yy);
-            }
-        }
-    }
-
-    fn stroke_rect(&mut self, x: usize, y: usize, width: usize, height: usize) {
-        if width == 0 || height == 0 {
-            return;
-        }
-
-        self.fill_rect(x, y, width, 1);
-        self.fill_rect(x, y + height - 1, width, 1);
-        self.fill_rect(x, y, 1, height);
-        self.fill_rect(x + width - 1, y, 1, height);
-    }
-
-    fn set_pixel(&mut self, x: usize, y: usize) {
-        if x >= self.width || y >= self.height {
-            return;
-        }
-
-        let offset = (y * self.width + x) * 4;
-        self.rgba[offset] = 255;
-        self.rgba[offset + 1] = 255;
-        self.rgba[offset + 2] = 255;
-        self.rgba[offset + 3] = 255;
+        StatusBarIconId::Screenshot => include_bytes!("../../icons/tray/zero-snap.png"),
+        StatusBarIconId::Paper => include_bytes!("../../icons/tray/zero-paper.png"),
+        StatusBarIconId::Extension => include_bytes!("../../icons/tray/extension.png"),
     }
 }
 

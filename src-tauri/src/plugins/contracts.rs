@@ -115,9 +115,11 @@ pub struct PluginContributionSetting {
 #[serde(rename_all = "kebab-case")]
 pub enum StatusBarIconId {
     Zero,
+    Launch,
     CaffeineEmpty,
     CaffeineFull,
     Screenshot,
+    Paper,
     Extension,
 }
 

@@ -190,77 +190,22 @@ input:focus-visible {
   place-items: center;
   border-radius: 6px;
   background: rgba(28, 34, 42, 0.08);
-  color: #20262d;
+  color: inherit;
 }
 
-.status-bar-glyph::before,
-.status-bar-glyph::after {
-  content: "";
-  position: absolute;
-  box-sizing: border-box;
-}
-
-.status-bar-glyph.icon-zero::before {
-  content: "Z";
-  inset: 0;
-  display: grid;
-  place-items: center;
-  border-radius: inherit;
-  background: #20262d;
-  color: #f7f8f2;
-  font-size: 12px;
-  font-weight: 900;
-}
-
-.status-bar-glyph.icon-screenshot::before {
-  width: 13px;
-  height: 10px;
-  border: 2px solid currentColor;
-  border-radius: 3px;
-}
-
-.status-bar-glyph.icon-screenshot::after {
-  top: 4px;
-  width: 6px;
-  height: 2px;
-  border-radius: 999px;
-  background: currentColor;
-}
-
-.status-bar-glyph.icon-caffeine-empty::before,
-.status-bar-glyph.icon-caffeine-full::before {
-  left: 5px;
-  top: 7px;
-  width: 9px;
-  height: 7px;
-  border: 2px solid currentColor;
-  border-radius: 2px 2px 4px 4px;
-}
-
-.status-bar-glyph.icon-caffeine-empty::after,
-.status-bar-glyph.icon-caffeine-full::after {
-  right: 3px;
-  top: 9px;
-  width: 5px;
-  height: 5px;
-  border: 2px solid currentColor;
-  border-left: 0;
-  border-radius: 0 5px 5px 0;
-}
-
-.status-bar-glyph.icon-caffeine-full::before {
-  background: linear-gradient(to top, currentColor 0 48%, transparent 48%);
-}
-
-.status-bar-glyph.icon-extension::before {
-  width: 4px;
-  height: 4px;
-  border-radius: 1px;
-  background: currentColor;
-  box-shadow:
-    6px 0 currentColor,
-    0 6px currentColor,
-    6px 6px currentColor;
+.status-bar-glyph-mask {
+  width: 16px;
+  height: 16px;
+  display: block;
+  background-color: currentColor;
+  -webkit-mask-image: var(--status-bar-icon);
+  mask-image: var(--status-bar-icon);
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+  mask-size: contain;
 }
 
 .plugin-panel {
