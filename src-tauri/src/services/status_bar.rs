@@ -5,7 +5,10 @@ use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 use tauri::image::Image;
-use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
+#[cfg(target_os = "macos")]
+use tauri::menu::MenuBuilder;
+use tauri::tray::{MouseButton, TrayIcon, TrayIconBuilder, TrayIconEvent};
+use tauri::Runtime;
 use tauri::{Emitter, Manager};
 use tauri_plugin_positioner::on_tray_event;
 
@@ -19,11 +22,18 @@ use crate::plugins::contracts::{
 use crate::plugins::registry::PluginRegistryState;
 use crate::services::caffeine::CaffeineState;
 
+pub const MACOS_COMPACT_STATUS_ITEM_LENGTH: f64 = 22.0;
+pub const PRIMARY_STATUS_ITEM_COLLAPSE_MENU_ID: &str = "zero.status-bar.toggle-tool-items";
+pub const PRIMARY_STATUS_ITEM_QUIT_MENU_ID: &str = "zero.status-bar.quit";
+pub const TOOL_STATUS_ITEM_QUIT_MENU_ID_PREFIX: &str = "zero.status-bar.tool.quit:";
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StatusBarSettings {
     pub enabled: bool,
     pub show_plugin_items_on_launch: bool,
+    #[serde(default)]
+    pub plugin_items_collapsed: bool,
     pub visible_plugin_items: HashMap<String, bool>,
 }
 
@@ -32,6 +42,7 @@ pub struct StatusBarSettings {
 pub struct UpdateStatusBarSettingsInput {
     pub enabled: Option<bool>,
     pub show_plugin_items_on_launch: Option<bool>,
+    pub plugin_items_collapsed: Option<bool>,
     pub visible_plugin_items: Option<HashMap<String, bool>>,
 }
 
@@ -60,6 +71,23 @@ pub struct StatusBarItemSnapshot {
 pub enum StatusBarSupport {
     NativeMultiItem,
     FallbackActionRow,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeStatusItemRole {
+    Primary,
+    Tool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrimaryStatusBarMenuAction {
+    ToggleToolItems,
+    Quit,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolStatusBarMenuAction {
+    Quit,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -170,6 +198,13 @@ impl StatusBarState {
         Ok(previous)
     }
 
+    fn native_plugin_item_ids(&self) -> Result<Vec<String>, String> {
+        self.native_plugin_item_ids
+            .lock()
+            .map_err(|_| "status bar native item lock is poisoned".to_string())
+            .map(|ids| ids.clone())
+    }
+
     fn should_accept_primary_toggle(&self, now: std::time::Instant) -> bool {
         const PRIMARY_TOGGLE_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(280);
 
@@ -193,6 +228,7 @@ impl Default for StatusBarSettings {
         Self {
             enabled: true,
             show_plugin_items_on_launch: true,
+            plugin_items_collapsed: false,
             visible_plugin_items: HashMap::new(),
         }
     }
@@ -221,6 +257,9 @@ impl StatusBarSettings {
         }
         if let Some(show_plugin_items_on_launch) = input.show_plugin_items_on_launch {
             self.show_plugin_items_on_launch = show_plugin_items_on_launch;
+        }
+        if let Some(plugin_items_collapsed) = input.plugin_items_collapsed {
+            self.plugin_items_collapsed = plugin_items_collapsed;
         }
         if let Some(visible_plugin_items) = input.visible_plugin_items {
             for (plugin_name, visible) in visible_plugin_items {
@@ -341,7 +380,7 @@ pub fn refresh_status_bar(app: &tauri::AppHandle) -> Result<Vec<StatusBarItemSna
         .unwrap_or(false);
     let support = current_status_bar_support();
     let items = normalize_status_bar_items(&records, &settings, caffeine_enabled, support);
-    sync_native_plugin_items(app, &items, support)?;
+    sync_native_plugin_items(app, &items, support, settings.plugin_items_collapsed)?;
     Ok(items)
 }
 
@@ -387,6 +426,86 @@ pub fn update_status_bar_settings(
     let settings = app.state::<StatusBarState>().update(&records, input)?;
     let _ = refresh_status_bar(app)?;
     Ok(settings)
+}
+
+pub fn toggle_status_bar_plugin_items(app: &tauri::AppHandle) -> Result<StatusBarSettings, String> {
+    let records = plugin_records(app)?;
+    let current = ensure_status_bar_settings(app, &records)?;
+    perform_status_bar_plugin_items_toggle(
+        current.plugin_items_collapsed,
+        |collapsed| apply_existing_status_bar_layout(app, collapsed),
+        |input| app.state::<StatusBarState>().update(&records, input),
+    )
+}
+
+fn perform_status_bar_plugin_items_toggle(
+    current_collapsed: bool,
+    apply_layout: impl Fn(bool) -> Result<(), String>,
+    persist: impl FnOnce(UpdateStatusBarSettingsInput) -> Result<StatusBarSettings, String>,
+) -> Result<StatusBarSettings, String> {
+    let next_collapsed = !current_collapsed;
+    if let Err(error) = apply_layout(next_collapsed) {
+        let _ = apply_layout(current_collapsed);
+        return Err(error);
+    }
+
+    match persist(status_bar_plugin_items_collapse_update(current_collapsed)) {
+        Ok(settings) => Ok(settings),
+        Err(error) => {
+            let _ = apply_layout(current_collapsed);
+            Err(error)
+        }
+    }
+}
+
+pub fn status_bar_plugin_items_collapse_update(
+    plugin_items_collapsed: bool,
+) -> UpdateStatusBarSettingsInput {
+    UpdateStatusBarSettingsInput {
+        enabled: None,
+        show_plugin_items_on_launch: None,
+        plugin_items_collapsed: Some(!plugin_items_collapsed),
+        visible_plugin_items: None,
+    }
+}
+
+pub fn status_bar_collapse_menu_label(
+    plugin_items_collapsed: bool,
+    language: &str,
+) -> &'static str {
+    match (language.starts_with("zh"), plugin_items_collapsed) {
+        (true, true) => "展开子工具",
+        (true, false) => "折叠子工具",
+        (false, true) => "Expand Tool Icons",
+        (false, false) => "Collapse Tool Icons",
+    }
+}
+
+pub fn status_bar_quit_menu_label(language: &str) -> &'static str {
+    if language.starts_with("zh") {
+        "退出 Zero 状态栏"
+    } else {
+        "Quit Zero Status Bar"
+    }
+}
+
+pub fn primary_status_bar_menu_action(menu_id: &str) -> Option<PrimaryStatusBarMenuAction> {
+    match menu_id {
+        PRIMARY_STATUS_ITEM_COLLAPSE_MENU_ID => Some(PrimaryStatusBarMenuAction::ToggleToolItems),
+        PRIMARY_STATUS_ITEM_QUIT_MENU_ID => Some(PrimaryStatusBarMenuAction::Quit),
+        _ => None,
+    }
+}
+
+pub fn tool_status_bar_quit_menu_id(item_id: &str) -> String {
+    format!("{TOOL_STATUS_ITEM_QUIT_MENU_ID_PREFIX}{item_id}")
+}
+
+pub fn tool_status_bar_menu_action(
+    menu_id: &str,
+    item_id: &str,
+) -> Option<ToolStatusBarMenuAction> {
+    (menu_id == tool_status_bar_quit_menu_id(item_id)).then_some(ToolStatusBarMenuAction::Quit)
 }
 
 pub fn handle_status_bar_action(
@@ -453,6 +572,50 @@ pub fn native_status_item_creation_order(items: &[StatusBarItemSnapshot]) -> Vec
     order
 }
 
+pub fn native_status_item_length(
+    support: StatusBarSupport,
+    _role: NativeStatusItemRole,
+    _plugin_items_collapsed: bool,
+) -> Option<f64> {
+    if support != StatusBarSupport::NativeMultiItem {
+        return None;
+    }
+
+    Some(MACOS_COMPACT_STATUS_ITEM_LENGTH)
+}
+
+pub fn native_status_item_visible(
+    support: StatusBarSupport,
+    role: NativeStatusItemRole,
+    plugin_items_collapsed: bool,
+) -> bool {
+    match role {
+        NativeStatusItemRole::Primary => true,
+        NativeStatusItemRole::Tool => {
+            support == StatusBarSupport::NativeMultiItem && !plugin_items_collapsed
+        }
+    }
+}
+
+pub fn native_tool_status_item_visibility_updates(
+    tool_item_ids: &[String],
+    plugin_items_collapsed: bool,
+) -> Vec<(String, bool)> {
+    tool_item_ids
+        .iter()
+        .map(|id| {
+            (
+                id.clone(),
+                native_status_item_visible(
+                    StatusBarSupport::NativeMultiItem,
+                    NativeStatusItemRole::Tool,
+                    plugin_items_collapsed,
+                ),
+            )
+        })
+        .collect()
+}
+
 fn primary_item() -> StatusBarItemSnapshot {
     StatusBarItemSnapshot {
         id: PRIMARY_STATUS_ITEM_ID.into(),
@@ -488,6 +651,7 @@ fn sync_native_plugin_items(
     app: &tauri::AppHandle,
     items: &[StatusBarItemSnapshot],
     support: StatusBarSupport,
+    plugin_items_collapsed: bool,
 ) -> Result<(), String> {
     let state = app.state::<StatusBarState>();
     let previous_ids = state.replace_native_plugin_item_ids(Vec::new())?;
@@ -497,7 +661,7 @@ fn sync_native_plugin_items(
     let _ = app.remove_tray_by_id(PRIMARY_STATUS_ITEM_ID);
 
     if support != StatusBarSupport::NativeMultiItem {
-        sync_primary_status_item(app)?;
+        sync_primary_status_item(app, support, plugin_items_collapsed)?;
         return Ok(());
     }
 
@@ -514,7 +678,7 @@ fn sync_native_plugin_items(
         let title = item.title.clone();
         let app_for_event = app.clone();
 
-        TrayIconBuilder::with_id(id.clone())
+        let builder = TrayIconBuilder::with_id(id.clone())
             .icon(icon)
             .icon_as_template(true)
             .tooltip(title)
@@ -531,14 +695,44 @@ fn sync_native_plugin_items(
                         plugin_name.clone(),
                     );
                 }
+            });
+
+        #[cfg(target_os = "macos")]
+        let builder = {
+            let menu = tool_status_bar_menu(app, &item.id)?;
+            let tool_item_id = item.id.clone();
+
+            builder.menu(&menu).on_menu_event(move |app, event| {
+                if tool_status_bar_menu_action(event.id().as_ref(), &tool_item_id)
+                    == Some(ToolStatusBarMenuAction::Quit)
+                {
+                    crate::commands::app::quit_app(app.clone());
+                }
             })
+        };
+
+        let tray = builder
             .build(app)
             .map_err(|error| format!("failed to create status bar item: {error}"))?;
+        apply_native_status_item_visibility(
+            &tray,
+            native_status_item_visible(support, NativeStatusItemRole::Tool, plugin_items_collapsed),
+        )?;
+        if !plugin_items_collapsed {
+            apply_native_status_item_length(
+                &tray,
+                native_status_item_length(
+                    support,
+                    NativeStatusItemRole::Tool,
+                    plugin_items_collapsed,
+                ),
+            )?;
+        }
         next_ids.push(id);
     }
 
     let _ = state.replace_native_plugin_item_ids(next_ids)?;
-    sync_primary_status_item(app)?;
+    sync_primary_status_item(app, support, plugin_items_collapsed)?;
     Ok(())
 }
 
@@ -546,8 +740,105 @@ fn native_tray_id(item_id: &str) -> String {
     format!("status-bar:{item_id}")
 }
 
-fn sync_primary_status_item(app: &tauri::AppHandle) -> Result<(), String> {
-    TrayIconBuilder::with_id(PRIMARY_STATUS_ITEM_ID)
+fn apply_existing_status_bar_layout(
+    app: &tauri::AppHandle,
+    plugin_items_collapsed: bool,
+) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let support = StatusBarSupport::NativeMultiItem;
+        let primary = app
+            .tray_by_id(PRIMARY_STATUS_ITEM_ID)
+            .ok_or_else(|| "primary status bar item is unavailable".to_string())?;
+
+        let tool_item_ids = app.state::<StatusBarState>().native_plugin_item_ids()?;
+        for (id, visible) in
+            native_tool_status_item_visibility_updates(&tool_item_ids, plugin_items_collapsed)
+        {
+            let tray = app
+                .tray_by_id(&id)
+                .ok_or_else(|| format!("status bar tool item is unavailable: {id}"))?;
+            apply_native_status_item_visibility(&tray, visible)?;
+            if visible {
+                apply_native_status_item_length(
+                    &tray,
+                    native_status_item_length(
+                        support,
+                        NativeStatusItemRole::Tool,
+                        plugin_items_collapsed,
+                    ),
+                )?;
+            }
+        }
+
+        apply_native_status_item_length(
+            &primary,
+            native_status_item_length(
+                support,
+                NativeStatusItemRole::Primary,
+                plugin_items_collapsed,
+            ),
+        )?;
+
+        primary
+            .set_menu(Some(primary_status_bar_menu(app, plugin_items_collapsed)?))
+            .map_err(|error| format!("failed to update primary status bar menu: {error}"))?;
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    let _ = (app, plugin_items_collapsed);
+
+    Ok(())
+}
+
+fn apply_native_status_item_visibility<R: Runtime>(
+    tray: &TrayIcon<R>,
+    visible: bool,
+) -> Result<(), String> {
+    tray.set_visible(visible)
+        .map_err(|error| format!("failed to update status bar item visibility: {error}"))
+}
+
+#[cfg(target_os = "macos")]
+fn primary_status_bar_menu<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    plugin_items_collapsed: bool,
+) -> Result<tauri::menu::Menu<R>, String> {
+    let language = crate::services::quick_launcher::system_language();
+    MenuBuilder::new(app)
+        .text(
+            PRIMARY_STATUS_ITEM_COLLAPSE_MENU_ID,
+            status_bar_collapse_menu_label(plugin_items_collapsed, &language),
+        )
+        .text(
+            PRIMARY_STATUS_ITEM_QUIT_MENU_ID,
+            status_bar_quit_menu_label(&language),
+        )
+        .build()
+        .map_err(|error| format!("failed to create primary status bar menu: {error}"))
+}
+
+#[cfg(target_os = "macos")]
+fn tool_status_bar_menu<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    item_id: &str,
+) -> Result<tauri::menu::Menu<R>, String> {
+    let language = crate::services::quick_launcher::system_language();
+    MenuBuilder::new(app)
+        .text(
+            tool_status_bar_quit_menu_id(item_id),
+            status_bar_quit_menu_label(&language),
+        )
+        .build()
+        .map_err(|error| format!("failed to create tool status bar menu: {error}"))
+}
+
+fn sync_primary_status_item(
+    app: &tauri::AppHandle,
+    support: StatusBarSupport,
+    plugin_items_collapsed: bool,
+) -> Result<(), String> {
+    let builder = TrayIconBuilder::with_id(PRIMARY_STATUS_ITEM_ID)
         .icon(status_bar_icon_image(&StatusBarIconId::Zero)?)
         .icon_as_template(true)
         .tooltip(PRODUCT_NAME)
@@ -568,9 +859,62 @@ fn sync_primary_status_item(app: &tauri::AppHandle) -> Result<(), String> {
 
                 let _ = crate::toggle_tray_quick_panel(tray.app_handle());
             }
+        });
+
+    #[cfg(target_os = "macos")]
+    let builder = {
+        let menu = primary_status_bar_menu(app, plugin_items_collapsed)?;
+
+        builder.menu(&menu).on_menu_event(|app, event| {
+            match primary_status_bar_menu_action(event.id().as_ref()) {
+                Some(PrimaryStatusBarMenuAction::ToggleToolItems) => {
+                    let app = app.clone();
+                    tauri::async_runtime::spawn(async move {
+                        let _ = toggle_status_bar_plugin_items(&app);
+                    });
+                }
+                Some(PrimaryStatusBarMenuAction::Quit) => {
+                    crate::commands::app::quit_app(app.clone());
+                }
+                None => {}
+            }
         })
+    };
+
+    let tray = builder
         .build(app)
         .map_err(|error| format!("failed to create primary status bar item: {error}"))?;
+    apply_native_status_item_length(
+        &tray,
+        native_status_item_length(
+            support,
+            NativeStatusItemRole::Primary,
+            plugin_items_collapsed,
+        ),
+    )?;
+
+    Ok(())
+}
+
+fn apply_native_status_item_length<R: Runtime>(
+    tray: &TrayIcon<R>,
+    length: Option<f64>,
+) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    if let Some(length) = length {
+        return tray
+            .with_inner_tray_icon(move |inner| {
+                let status_item = inner
+                    .ns_status_item()
+                    .ok_or_else(|| "macOS status item is unavailable".to_string())?;
+                status_item.setLength(length);
+                Ok(())
+            })
+            .map_err(|error| format!("failed to access macOS status item: {error}"))?;
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    let _ = (tray, length);
 
     Ok(())
 }
@@ -594,10 +938,6 @@ fn status_bar_icon_image(icon: &StatusBarIconId) -> Result<Image<'static>, Strin
         .to_rgba8();
     let (width, height) = decoded.dimensions();
     Ok(Image::new_owned(decoded.into_raw(), width, height))
-}
-
-pub fn primary_status_bar_icon_image() -> Result<Image<'static>, String> {
-    status_bar_icon_image(&StatusBarIconId::Zero)
 }
 
 pub fn status_bar_icon_png_bytes(icon: &StatusBarIconId) -> &'static [u8] {
@@ -693,4 +1033,56 @@ fn normalize_order(order: Option<u32>, plugin_index: usize) -> u32 {
         .unwrap_or(1000)
         .saturating_mul(1000)
         .saturating_add(u32::try_from(plugin_index).unwrap_or(u32::MAX))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::{Cell, RefCell};
+
+    use super::*;
+
+    #[test]
+    fn collapse_toggle_applies_existing_layout_before_persisting() {
+        let applied_layouts = RefCell::new(Vec::new());
+        let persisted = Cell::new(false);
+
+        let settings = perform_status_bar_plugin_items_toggle(
+            false,
+            |collapsed| {
+                applied_layouts.borrow_mut().push(collapsed);
+                Ok(())
+            },
+            |input| {
+                persisted.set(true);
+                assert_eq!(input.plugin_items_collapsed, Some(true));
+                Ok(StatusBarSettings {
+                    plugin_items_collapsed: true,
+                    ..StatusBarSettings::default()
+                })
+            },
+        )
+        .expect("collapse transition should succeed");
+
+        assert_eq!(*applied_layouts.borrow(), vec![true]);
+        assert!(persisted.get());
+        assert!(settings.plugin_items_collapsed);
+    }
+
+    #[test]
+    fn collapse_toggle_rolls_back_existing_layout_when_persistence_fails() {
+        let applied_layouts = RefCell::new(Vec::new());
+
+        let error = perform_status_bar_plugin_items_toggle(
+            false,
+            |collapsed| {
+                applied_layouts.borrow_mut().push(collapsed);
+                Ok(())
+            },
+            |_| Err("cannot persist status bar settings".to_string()),
+        )
+        .expect_err("failed persistence should reject the transition");
+
+        assert_eq!(error, "cannot persist status bar settings");
+        assert_eq!(*applied_layouts.borrow(), vec![true, false]);
+    }
 }

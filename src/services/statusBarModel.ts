@@ -14,12 +14,14 @@ import {
 export interface StatusBarSettingsSnapshot {
   enabled: boolean;
   showPluginItemsOnLaunch: boolean;
+  pluginItemsCollapsed: boolean;
   visiblePluginItems: Record<string, boolean>;
 }
 
 export interface UpdateStatusBarSettingsInput {
   enabled?: boolean;
   showPluginItemsOnLaunch?: boolean;
+  pluginItemsCollapsed?: boolean;
   visiblePluginItems?: Record<string, boolean>;
 }
 
@@ -66,6 +68,7 @@ export interface ResolveStatusBarPreferenceItemsInput {
 export const DEFAULT_STATUS_BAR_SETTINGS: StatusBarSettingsSnapshot = {
   enabled: true,
   showPluginItemsOnLaunch: true,
+  pluginItemsCollapsed: false,
   visiblePluginItems: {},
 };
 
@@ -98,6 +101,8 @@ export function normalizeStatusBarSettings(
     showPluginItemsOnLaunch:
       input.showPluginItemsOnLaunch ??
       DEFAULT_STATUS_BAR_SETTINGS.showPluginItemsOnLaunch,
+    pluginItemsCollapsed:
+      input.pluginItemsCollapsed ?? DEFAULT_STATUS_BAR_SETTINGS.pluginItemsCollapsed,
     visiblePluginItems,
   };
 }

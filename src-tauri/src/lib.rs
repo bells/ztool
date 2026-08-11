@@ -1,12 +1,9 @@
 // The existing objc 0.2 macros expand a historical `cargo-clippy` cfg in this crate.
 #![allow(unexpected_cfgs)]
 
-use std::sync::{Arc, Mutex};
-
-use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
 use tauri::Manager;
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, ShortcutState};
-use tauri_plugin_positioner::{on_tray_event, Position, WindowExt};
+use tauri_plugin_positioner::{Position, WindowExt};
 
 pub mod brand;
 pub mod commands;
@@ -14,22 +11,9 @@ pub mod migration;
 pub mod plugins;
 pub mod services;
 
-const TRAY_CLICK_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(280);
 const SCREENSHOT_SHORTCUT: &str = "CommandOrControl+Shift+A";
 pub const QUICK_LAUNCHER_SHORTCUT: &str = "CommandOrControl+Shift+Space";
 const TRAY_WINDOW_LABEL: &str = "tray";
-
-fn should_accept_tray_toggle(
-    last_toggle_at: &mut Option<std::time::Instant>,
-    now: std::time::Instant,
-) -> bool {
-    if last_toggle_at.is_some_and(|previous| now.duration_since(previous) < TRAY_CLICK_DEBOUNCE) {
-        return false;
-    }
-
-    *last_toggle_at = Some(now);
-    true
-}
 
 fn is_quick_launcher_shortcut(modifiers: Modifiers, key: Code) -> bool {
     #[cfg(target_os = "macos")]
@@ -148,37 +132,6 @@ pub fn run() {
                 app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             }
 
-            let last_tray_toggle_at = Arc::new(Mutex::new(None::<std::time::Instant>));
-            let last_tray_toggle_at_tray = last_tray_toggle_at.clone();
-            let primary_status_bar_icon = services::status_bar::primary_status_bar_icon_image()
-                .map_err(std::io::Error::other)?;
-
-            let _tray = TrayIconBuilder::with_id(brand::PRIMARY_STATUS_ITEM_ID)
-                .icon(primary_status_bar_icon)
-                .icon_as_template(true)
-                .tooltip(brand::PRODUCT_NAME)
-                .show_menu_on_left_click(false)
-                .on_tray_icon_event(move |tray, event| {
-                    let app_handle = tray.app_handle();
-                    on_tray_event(&app_handle, &event);
-
-                    if let TrayIconEvent::Click {
-                        button: MouseButton::Left,
-                        ..
-                    } = event
-                    {
-                        let now = std::time::Instant::now();
-                        if let Ok(mut last_toggle) = last_tray_toggle_at_tray.lock() {
-                            if !should_accept_tray_toggle(&mut last_toggle, now) {
-                                return;
-                            }
-                        }
-
-                        let _ = toggle_tray_quick_panel(tray.app_handle());
-                    }
-                })
-                .build(app)?;
-
             let _ = services::status_bar::refresh_status_bar(app.handle());
 
             let launcher_state = app.state::<services::quick_launcher::QuickLauncherState>();
@@ -257,22 +210,6 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn tray_toggle_debounce_rejects_repeated_click_events() {
-        let start = std::time::Instant::now();
-        let mut last_toggle_at = None;
-
-        assert!(should_accept_tray_toggle(&mut last_toggle_at, start));
-        assert!(!should_accept_tray_toggle(
-            &mut last_toggle_at,
-            start + TRAY_CLICK_DEBOUNCE / 2
-        ));
-        assert!(should_accept_tray_toggle(
-            &mut last_toggle_at,
-            start + TRAY_CLICK_DEBOUNCE + std::time::Duration::from_millis(1)
-        ));
-    }
 
     #[test]
     fn launcher_shortcut_matches_expected_modifiers_only() {

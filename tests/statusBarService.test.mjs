@@ -27,6 +27,7 @@ test("invokes status bar commands through the injected bridge", async () => {
     return {
       enabled: true,
       showPluginItemsOnLaunch: true,
+      pluginItemsCollapsed: false,
       visiblePluginItems: {},
     };
   });

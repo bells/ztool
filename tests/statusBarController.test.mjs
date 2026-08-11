@@ -51,6 +51,7 @@ test("applies status bar setting updates without dropping existing item visibili
   const settings = {
     enabled: true,
     showPluginItemsOnLaunch: true,
+    pluginItemsCollapsed: false,
     visiblePluginItems: {
       "zero.snap": true,
       "zero.awake": true,
@@ -60,6 +61,7 @@ test("applies status bar setting updates without dropping existing item visibili
   assert.deepEqual(
     applyStatusBarSettingsUpdate(settings, {
       enabled: false,
+      pluginItemsCollapsed: true,
       visiblePluginItems: {
         "zero.awake": false,
       },
@@ -67,6 +69,7 @@ test("applies status bar setting updates without dropping existing item visibili
     {
       enabled: false,
       showPluginItemsOnLaunch: true,
+      pluginItemsCollapsed: true,
       visiblePluginItems: {
         "zero.snap": true,
         "zero.awake": false,
@@ -88,6 +91,7 @@ test("creates preference, preview, fallback, and error state for the status bar 
   const settings = {
     enabled: true,
     showPluginItemsOnLaunch: true,
+    pluginItemsCollapsed: false,
     visiblePluginItems: {
       "zero.snap": false,
       "zero.awake": true,

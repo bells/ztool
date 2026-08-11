@@ -1,15 +1,22 @@
 use std::collections::HashMap;
 use std::fs;
 
+use zero_lib::brand::PRIMARY_STATUS_ITEM_ID;
 use zero_lib::plugins::contracts::{
     PluginContributionStatusBarItem, PluginContributions, PluginHealth, PluginManifest,
     PluginPermission, PluginRecord, PluginSource, StatusBarAction, StatusBarActionType,
     StatusBarIconId,
 };
 use zero_lib::services::status_bar::{
-    load_status_bar_settings, native_status_item_creation_order, normalize_status_bar_items,
-    save_status_bar_settings, status_bar_action_effects, status_bar_icon_png_bytes,
-    StatusBarActionEffect, StatusBarSettings, StatusBarSupport,
+    load_status_bar_settings, native_status_item_creation_order, native_status_item_length,
+    native_status_item_visible, native_tool_status_item_visibility_updates,
+    normalize_status_bar_items, primary_status_bar_menu_action, save_status_bar_settings,
+    status_bar_action_effects, status_bar_collapse_menu_label, status_bar_icon_png_bytes,
+    status_bar_plugin_items_collapse_update, status_bar_quit_menu_label,
+    tool_status_bar_menu_action, tool_status_bar_quit_menu_id, NativeStatusItemRole,
+    PrimaryStatusBarMenuAction, StatusBarActionEffect, StatusBarSettings, StatusBarState,
+    StatusBarSupport, ToolStatusBarMenuAction, UpdateStatusBarSettingsInput,
+    MACOS_COMPACT_STATUS_ITEM_LENGTH,
 };
 
 fn plugin_record(name: &str, enabled: bool, order: Option<u32>) -> PluginRecord {
@@ -90,6 +97,7 @@ fn status_bar_settings_default_enabled_plugins_visible() {
 
     assert!(settings.enabled);
     assert!(settings.show_plugin_items_on_launch);
+    assert!(!settings.plugin_items_collapsed);
     assert_eq!(
         settings.visible_plugin_items,
         HashMap::from([
@@ -110,6 +118,7 @@ fn status_bar_settings_recovers_from_invalid_json() {
     let settings = load_status_bar_settings(&path, &records).unwrap();
 
     assert!(settings.enabled);
+    assert!(!settings.plugin_items_collapsed);
     assert_eq!(settings.visible_plugin_items["zero.snap"], true);
 
     save_status_bar_settings(&path, &settings).unwrap();
@@ -149,6 +158,7 @@ fn status_bar_settings_migrate_legacy_keys_with_canonical_precedence() {
     ];
     let settings = load_status_bar_settings(&path, &records).unwrap();
 
+    assert!(!settings.plugin_items_collapsed);
     assert_eq!(settings.visible_plugin_items["zero.snap"], false);
     assert_eq!(settings.visible_plugin_items["zero.awake"], false);
     assert_eq!(settings.visible_plugin_items["ztool.third-party"], true);
@@ -156,6 +166,56 @@ fn status_bar_settings_migrate_legacy_keys_with_canonical_precedence() {
         .visible_plugin_items
         .contains_key("ztool.screenshot"));
     assert!(!settings.visible_plugin_items.contains_key("ztool.caffeine"));
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn status_bar_settings_persist_collapse_updates_without_losing_visibility() {
+    let root = std::env::temp_dir().join(format!(
+        "zero-status-bar-collapse-test-{}",
+        std::process::id()
+    ));
+    let path = root.join("status-bar.json");
+    let records = [
+        plugin_record("zero.snap", true, Some(20)),
+        plugin_record("zero.awake", true, Some(10)),
+    ];
+    let state = StatusBarState::default();
+    state.configure_path(path.clone(), &records).unwrap();
+
+    let collapsed = state
+        .update(
+            &records,
+            UpdateStatusBarSettingsInput {
+                enabled: None,
+                show_plugin_items_on_launch: None,
+                plugin_items_collapsed: Some(true),
+                visible_plugin_items: Some(HashMap::from([("zero.snap".into(), false)])),
+            },
+        )
+        .unwrap();
+    assert!(collapsed.plugin_items_collapsed);
+    assert!(!collapsed.visible_plugin_items["zero.snap"]);
+    assert!(collapsed.visible_plugin_items["zero.awake"]);
+
+    let reloaded = load_status_bar_settings(&path, &records).unwrap();
+    assert!(reloaded.plugin_items_collapsed);
+    assert!(!reloaded.visible_plugin_items["zero.snap"]);
+
+    let expanded = state
+        .update(
+            &records,
+            UpdateStatusBarSettingsInput {
+                enabled: None,
+                show_plugin_items_on_launch: None,
+                plugin_items_collapsed: Some(false),
+                visible_plugin_items: None,
+            },
+        )
+        .unwrap();
+    assert!(!expanded.plugin_items_collapsed);
+    assert!(!expanded.visible_plugin_items["zero.snap"]);
+
     let _ = fs::remove_dir_all(root);
 }
 
@@ -221,24 +281,202 @@ fn status_bar_native_creation_order_rebuilds_primary_last_for_visual_order() {
 }
 
 #[test]
-fn status_bar_items_keep_plugin_actions_available_in_fallback() {
-    let records = [plugin_record("zero.awake", true, Some(10))];
-    let settings = StatusBarSettings::default_for_records(&records);
+fn status_bar_native_layout_keeps_compact_lengths_and_hides_collapsed_tools() {
+    assert_eq!(MACOS_COMPACT_STATUS_ITEM_LENGTH, 22.0);
+    assert_eq!(
+        native_status_item_length(
+            StatusBarSupport::NativeMultiItem,
+            NativeStatusItemRole::Primary,
+            true,
+        ),
+        Some(22.0),
+    );
+    assert_eq!(
+        native_status_item_length(
+            StatusBarSupport::NativeMultiItem,
+            NativeStatusItemRole::Tool,
+            false,
+        ),
+        Some(22.0),
+    );
+    assert_eq!(
+        native_status_item_length(
+            StatusBarSupport::NativeMultiItem,
+            NativeStatusItemRole::Tool,
+            true,
+        ),
+        Some(22.0),
+    );
+    assert!(native_status_item_visible(
+        StatusBarSupport::NativeMultiItem,
+        NativeStatusItemRole::Primary,
+        true,
+    ));
+    assert!(native_status_item_visible(
+        StatusBarSupport::NativeMultiItem,
+        NativeStatusItemRole::Tool,
+        false,
+    ));
+    assert!(!native_status_item_visible(
+        StatusBarSupport::NativeMultiItem,
+        NativeStatusItemRole::Tool,
+        true,
+    ));
+    assert_eq!(
+        native_status_item_length(
+            StatusBarSupport::FallbackActionRow,
+            NativeStatusItemRole::Tool,
+            true,
+        ),
+        None,
+    );
+    assert!(!native_status_item_visible(
+        StatusBarSupport::FallbackActionRow,
+        NativeStatusItemRole::Tool,
+        false,
+    ));
+}
+
+#[test]
+fn status_bar_collapse_menu_labels_follow_state_and_language() {
+    assert_eq!(status_bar_collapse_menu_label(false, "zh-CN"), "折叠子工具");
+    assert_eq!(
+        status_bar_collapse_menu_label(true, "zh_CN.UTF-8"),
+        "展开子工具"
+    );
+    assert_eq!(
+        status_bar_collapse_menu_label(false, "en-US"),
+        "Collapse Tool Icons"
+    );
+    assert_eq!(
+        status_bar_collapse_menu_label(true, "en_US.UTF-8"),
+        "Expand Tool Icons"
+    );
+    assert_eq!(status_bar_quit_menu_label("zh-CN"), "退出 Zero 状态栏");
+    assert_eq!(status_bar_quit_menu_label("en-US"), "Quit Zero Status Bar");
+
+    assert_eq!(
+        primary_status_bar_menu_action("zero.status-bar.toggle-tool-items"),
+        Some(PrimaryStatusBarMenuAction::ToggleToolItems)
+    );
+    assert_eq!(
+        primary_status_bar_menu_action("zero.status-bar.quit"),
+        Some(PrimaryStatusBarMenuAction::Quit)
+    );
+    assert_eq!(primary_status_bar_menu_action("unknown"), None);
+}
+
+#[test]
+fn tool_status_bar_menu_routes_only_its_unique_quit_action() {
+    let launch_quit_id = tool_status_bar_quit_menu_id("zero.launch.status");
+    let awake_quit_id = tool_status_bar_quit_menu_id("zero.awake.status");
+
+    assert_ne!(launch_quit_id, awake_quit_id);
+    assert_eq!(
+        tool_status_bar_menu_action(&launch_quit_id, "zero.launch.status"),
+        Some(ToolStatusBarMenuAction::Quit)
+    );
+    assert_eq!(
+        tool_status_bar_menu_action(&launch_quit_id, "zero.awake.status"),
+        None
+    );
+    assert_eq!(
+        tool_status_bar_menu_action("zero.status-bar.quit", "zero.launch.status"),
+        None
+    );
+}
+
+#[test]
+fn existing_layout_visibility_updates_never_include_the_primary_item() {
+    let tool_ids = vec![
+        "status-bar:zero.launch.status".to_string(),
+        "status-bar:zero.awake.status".to_string(),
+    ];
+
+    assert_eq!(
+        native_tool_status_item_visibility_updates(&tool_ids, true),
+        vec![
+            ("status-bar:zero.launch.status".to_string(), false),
+            ("status-bar:zero.awake.status".to_string(), false),
+        ]
+    );
+    assert_eq!(
+        native_tool_status_item_visibility_updates(&tool_ids, false),
+        vec![
+            ("status-bar:zero.launch.status".to_string(), true),
+            ("status-bar:zero.awake.status".to_string(), true),
+        ]
+    );
+    assert!(native_tool_status_item_visibility_updates(&tool_ids, false)
+        .iter()
+        .all(|(id, _)| id != PRIMARY_STATUS_ITEM_ID));
+}
+
+#[test]
+fn status_bar_collapse_updates_toggle_only_group_layout_state() {
+    let collapse = status_bar_plugin_items_collapse_update(false);
+    assert_eq!(collapse.plugin_items_collapsed, Some(true));
+    assert_eq!(collapse.enabled, None);
+    assert_eq!(collapse.show_plugin_items_on_launch, None);
+    assert_eq!(collapse.visible_plugin_items, None);
+
+    let expand = status_bar_plugin_items_collapse_update(
+        collapse.plugin_items_collapsed.expect("collapse state"),
+    );
+    assert_eq!(expand.plugin_items_collapsed, Some(false));
+}
+
+#[test]
+fn collapsed_layout_preserves_primary_and_tool_actions() {
+    let records = [
+        plugin_record("zero.snap", true, Some(20)),
+        plugin_record("zero.awake", true, Some(10)),
+    ];
+    let mut settings = StatusBarSettings::default_for_records(&records);
+    settings.plugin_items_collapsed = true;
 
     let items = normalize_status_bar_items(
         &records,
         &settings,
         false,
-        StatusBarSupport::FallbackActionRow,
+        StatusBarSupport::NativeMultiItem,
     );
-
-    assert_eq!(items[0].id, "zero.primary");
-    assert!(items[0].native_visible);
+    assert_eq!(
+        status_bar_action_effects(&items[0].action, None),
+        vec![StatusBarActionEffect::ToggleTray]
+    );
     assert_eq!(
         items[1].action.action_type,
         StatusBarActionType::ToggleCaffeine
     );
-    assert!(!items[1].native_visible);
+    assert_eq!(
+        items[2].action.action_type,
+        StatusBarActionType::StartScreenshot
+    );
+}
+
+#[test]
+fn status_bar_items_keep_plugin_actions_available_in_fallback() {
+    let records = [plugin_record("zero.awake", true, Some(10))];
+    for plugin_items_collapsed in [false, true] {
+        let mut settings = StatusBarSettings::default_for_records(&records);
+        settings.plugin_items_collapsed = plugin_items_collapsed;
+
+        let items = normalize_status_bar_items(
+            &records,
+            &settings,
+            false,
+            StatusBarSupport::FallbackActionRow,
+        );
+
+        assert_eq!(items[0].id, "zero.primary");
+        assert!(items[0].native_visible);
+        assert_eq!(
+            items[1].action.action_type,
+            StatusBarActionType::ToggleCaffeine
+        );
+        assert!(!items[1].native_visible);
+    }
 }
 
 #[test]

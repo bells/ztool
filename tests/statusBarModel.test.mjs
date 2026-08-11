@@ -72,6 +72,7 @@ test("normalizes missing status bar settings to native startup defaults", () => 
     {
       enabled: true,
       showPluginItemsOnLaunch: true,
+      pluginItemsCollapsed: false,
       visiblePluginItems: {
         "zero.snap": true,
         "zero.awake": true,
@@ -80,6 +81,26 @@ test("normalizes missing status bar settings to native startup defaults", () => 
   );
 
   assert.equal(DEFAULT_STATUS_BAR_SETTINGS.enabled, true);
+  assert.equal(DEFAULT_STATUS_BAR_SETTINGS.pluginItemsCollapsed, false);
+});
+
+test("normalizes and preserves persisted tool-item collapse state", () => {
+  const records = [pluginRecord("zero.snap")];
+
+  assert.equal(
+    normalizeStatusBarSettings({ pluginItemsCollapsed: true }, records)
+      .pluginItemsCollapsed,
+    true,
+  );
+  assert.equal(
+    normalizeStatusBarSettings(
+      {
+        visiblePluginItems: { "zero.snap": false },
+      },
+      records,
+    ).pluginItemsCollapsed,
+    false,
+  );
 });
 
 test("normalizes legacy first-party visibility without changing third-party ids", () => {
@@ -215,6 +236,36 @@ test("preview and fallback action row share the same filtered plugin items", () 
     "zero.awake.status",
   ]);
   assert.equal(items.find((item) => item.id === "zero.awake.status").nativeVisible, false);
+});
+
+test("fallback action row ignores macOS tool-item collapse state", () => {
+  const records = [
+    pluginRecord("zero.snap", true, { statusBarItems: [screenshotStatusItem] }),
+    pluginRecord("zero.awake", true, { statusBarItems: [caffeineStatusItem] }),
+  ];
+  const resolveFallbackIds = (pluginItemsCollapsed) => {
+    const settings = normalizeStatusBarSettings(
+      { pluginItemsCollapsed },
+      records,
+    );
+    return getStatusBarFallbackItems(
+      resolveStatusBarItems({
+        records,
+        settings,
+        caffeineEnabled: false,
+        platformSupportsNativeMultiItem: false,
+      }),
+    ).map((item) => item.id);
+  };
+
+  assert.deepEqual(resolveFallbackIds(false), [
+    "zero.awake.status",
+    "zero.snap.status",
+  ]);
+  assert.deepEqual(resolveFallbackIds(true), [
+    "zero.awake.status",
+    "zero.snap.status",
+  ]);
 });
 
 test("preference rows include hidden enabled plugin items so users can restore them", () => {

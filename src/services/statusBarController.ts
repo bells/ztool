@@ -40,6 +40,8 @@ export function applyStatusBarSettingsUpdate(
     enabled: input.enabled ?? settings.enabled,
     showPluginItemsOnLaunch:
       input.showPluginItemsOnLaunch ?? settings.showPluginItemsOnLaunch,
+    pluginItemsCollapsed:
+      input.pluginItemsCollapsed ?? settings.pluginItemsCollapsed,
     visiblePluginItems: {
       ...settings.visiblePluginItems,
       ...(input.visiblePluginItems ?? {}),
