@@ -9,6 +9,20 @@ use crate::services::quick_launcher::{system_language, QuickLauncherState};
 
 pub const LAUNCHER_WINDOW_LABEL: &str = "launcher";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QuickLauncherToggleAction {
+    Show,
+    Hide,
+}
+
+pub fn quick_launcher_toggle_action(is_visible: bool) -> QuickLauncherToggleAction {
+    if is_visible {
+        QuickLauncherToggleAction::Hide
+    } else {
+        QuickLauncherToggleAction::Show
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct QuickLauncherWindowOptions {
     pub label: &'static str,
@@ -90,6 +104,12 @@ pub fn activate_quick_launcher_item(
 
 #[tauri::command]
 pub fn show_quick_launcher_window(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("tray") {
+        window
+            .hide()
+            .map_err(|error| format!("failed to hide Zero tray window: {error}"))?;
+    }
+    crate::commands::paper::hide_paper_window(&app)?;
     let options = quick_launcher_window_options();
     let window = if let Some(window) = app.get_webview_window(options.label) {
         window
@@ -121,6 +141,21 @@ pub fn show_quick_launcher_window(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+pub fn toggle_quick_launcher_window(app: &tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window(LAUNCHER_WINDOW_LABEL) {
+        let is_visible = window
+            .is_visible()
+            .map_err(|error| format!("failed to read Zero Launch visibility: {error}"))?;
+        if quick_launcher_toggle_action(is_visible) == QuickLauncherToggleAction::Hide {
+            return window
+                .hide()
+                .map_err(|error| format!("failed to hide Zero Launch window: {error}"));
+        }
+    }
+
+    show_quick_launcher_window(app.clone())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -135,6 +170,18 @@ mod tests {
         assert!(options.transparent);
         assert!(options.always_on_top);
         assert!(options.skip_taskbar);
+    }
+
+    #[test]
+    fn status_bar_activation_toggles_launcher_visibility() {
+        assert_eq!(
+            quick_launcher_toggle_action(false),
+            QuickLauncherToggleAction::Show
+        );
+        assert_eq!(
+            quick_launcher_toggle_action(true),
+            QuickLauncherToggleAction::Hide
+        );
     }
 }
 

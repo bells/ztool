@@ -14,6 +14,7 @@ use tauri_plugin_positioner::on_tray_event;
 
 use crate::brand::{
     canonical_first_party_plugin_id, PRIMARY_STATUS_ITEM_ID, PRODUCT_NAME, ZERO_AWAKE_PLUGIN_ID,
+    ZERO_LAUNCH_PLUGIN_ID, ZERO_PAPER_PLUGIN_ID,
 };
 use crate::plugins::contracts::{
     PluginContributionStatusBarItem, PluginHealth, PluginRecord, PluginSource, StatusBarAction,
@@ -93,6 +94,13 @@ pub enum StatusBarActionEffect {
     StartScreenshotCopy,
     ShowMainWindow,
     EmitOpenPlugin(String),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeStatusBarActivation {
+    Launch,
+    Paper,
+    ExistingAction,
 }
 
 pub struct StatusBarState {
@@ -530,6 +538,14 @@ pub fn status_bar_action_effects(
     }
 }
 
+pub fn native_status_bar_activation(plugin_name: Option<&str>) -> NativeStatusBarActivation {
+    match plugin_name.map(canonical_first_party_plugin_id) {
+        Some(ZERO_LAUNCH_PLUGIN_ID) => NativeStatusBarActivation::Launch,
+        Some(ZERO_PAPER_PLUGIN_ID) => NativeStatusBarActivation::Paper,
+        _ => NativeStatusBarActivation::ExistingAction,
+    }
+}
+
 pub fn run_status_bar_item_action(app: &tauri::AppHandle, item_id: &str) -> Result<(), String> {
     let item = status_bar_items(app)?
         .into_iter()
@@ -636,6 +652,35 @@ pub fn grouped_status_item_id_at_x(
     ids.get(index.min(ids.len() - 1)).cloned()
 }
 
+pub fn grouped_status_item_cell_rect(
+    items: &[StatusBarItemSnapshot],
+    plugin_items_collapsed: bool,
+    item_id: &str,
+    rect: tauri::Rect,
+) -> Option<tauri::Rect> {
+    let ids = grouped_status_item_ids(items, plugin_items_collapsed);
+    let index = ids.iter().position(|id| id == item_id)?;
+    match (rect.position, rect.size) {
+        (tauri::Position::Physical(mut position), tauri::Size::Physical(mut size)) => {
+            if ids.is_empty() || size.width < ids.len() as u32 {
+                return None;
+            }
+            let cell_width = size.width / ids.len() as u32;
+            position.x += i32::try_from(cell_width.saturating_mul(index as u32)).ok()?;
+            size.width = if index + 1 == ids.len() {
+                size.width - cell_width.saturating_mul(index as u32)
+            } else {
+                cell_width
+            };
+            Some(tauri::Rect {
+                position: position.into(),
+                size: size.into(),
+            })
+        }
+        _ => None,
+    }
+}
+
 #[cfg(target_os = "macos")]
 fn grouped_status_item_target(
     app: &tauri::AppHandle,
@@ -696,7 +741,41 @@ fn run_grouped_status_item_action(
         return crate::toggle_tray_quick_panel(app);
     }
 
-    handle_status_bar_action(app.clone(), item.action, item.plugin_name)
+    match native_status_bar_activation(item.plugin_name.as_deref()) {
+        NativeStatusBarActivation::Launch => {
+            crate::commands::quick_launcher::toggle_quick_launcher_window(app)
+        }
+        NativeStatusBarActivation::Paper => {
+            let records = plugin_records(app)?;
+            let settings = ensure_status_bar_settings(app, &records)?;
+            let items = status_bar_items(app)?;
+            let anchor = grouped_status_item_cell_rect(
+                &items,
+                settings.plugin_items_collapsed,
+                &item.id,
+                rect,
+            )
+            .and_then(paper_window_anchor);
+            crate::commands::paper::toggle_paper_window(app, anchor)
+        }
+        NativeStatusBarActivation::ExistingAction => {
+            handle_status_bar_action(app.clone(), item.action, item.plugin_name)
+        }
+    }
+}
+
+fn paper_window_anchor(rect: tauri::Rect) -> Option<crate::commands::paper::PaperWindowAnchor> {
+    match (rect.position, rect.size) {
+        (tauri::Position::Physical(position), tauri::Size::Physical(size)) => {
+            Some(crate::commands::paper::PaperWindowAnchor {
+                x: position.x,
+                y: position.y,
+                width: size.width,
+                height: size.height,
+            })
+        }
+        _ => None,
+    }
 }
 
 fn grouped_primary_cell_rect(rect: tauri::Rect, item_count: usize) -> tauri::Rect {

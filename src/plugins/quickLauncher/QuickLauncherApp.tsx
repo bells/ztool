@@ -18,22 +18,35 @@ export default function QuickLauncherApp() {
   useEffect(() => {
     let unlistenShown: (() => void) | null = null;
     let unlistenFocus: (() => void) | null = null;
+    let blurDismissTimer: ReturnType<typeof setTimeout> | null = null;
     let disposed = false;
+    const launcherWindow = getCurrentWindow();
     listen("quick-launcher-shown", () => {
       controller.resetTransient();
       setFocusEpoch((value) => value + 1);
     }).then((unlisten) => {
       if (disposed) unlisten(); else unlistenShown = unlisten;
     });
-    getCurrentWindow().onFocusChanged(({ payload: focused }) => {
-      if (!focused && shouldDismissLauncher("floating", "blur", controller.activatingId !== null)) {
-        hide();
+    launcherWindow.onFocusChanged(({ payload: focused }) => {
+      if (focused && blurDismissTimer !== null) {
+        clearTimeout(blurDismissTimer);
+        blurDismissTimer = null;
+      } else if (!focused && shouldDismissLauncher("floating", "blur", controller.activatingId !== null)) {
+        blurDismissTimer = setTimeout(() => {
+          blurDismissTimer = null;
+          void launcherWindow.isFocused()
+            .then((stillFocused) => {
+              if (!stillFocused) hide();
+            })
+            .catch(hide);
+        }, 120);
       }
     }).then((unlisten) => {
       if (disposed) unlisten(); else unlistenFocus = unlisten;
     });
     return () => {
       disposed = true;
+      if (blurDismissTimer !== null) clearTimeout(blurDismissTimer);
       unlistenShown?.();
       unlistenFocus?.();
     };

@@ -1,20 +1,24 @@
 use std::collections::HashMap;
 use std::fs;
 
-use zero_lib::brand::PRIMARY_STATUS_ITEM_ID;
+use zero_lib::brand::{
+    PRIMARY_STATUS_ITEM_ID, ZERO_AWAKE_PLUGIN_ID, ZERO_LAUNCH_PLUGIN_ID, ZERO_PAPER_PLUGIN_ID,
+    ZERO_SNAP_PLUGIN_ID,
+};
 use zero_lib::plugins::contracts::{
     PluginContributionStatusBarItem, PluginContributions, PluginHealth, PluginManifest,
     PluginPermission, PluginRecord, PluginSource, StatusBarAction, StatusBarActionType,
     StatusBarIconId,
 };
 use zero_lib::services::status_bar::{
-    grouped_status_item_id_at_x, grouped_status_item_ids, grouped_status_item_length,
-    load_status_bar_settings, normalize_status_bar_items, primary_status_bar_menu_action,
-    save_status_bar_settings, status_bar_action_effects, status_bar_collapse_menu_label,
-    status_bar_icon_png_bytes, status_bar_plugin_items_collapse_update, status_bar_quit_menu_label,
-    tool_status_bar_menu_action, tool_status_bar_quit_menu_id, PrimaryStatusBarMenuAction,
-    StatusBarActionEffect, StatusBarSettings, StatusBarState, StatusBarSupport,
-    ToolStatusBarMenuAction, UpdateStatusBarSettingsInput,
+    grouped_status_item_cell_rect, grouped_status_item_id_at_x, grouped_status_item_ids,
+    grouped_status_item_length, load_status_bar_settings, native_status_bar_activation,
+    normalize_status_bar_items, primary_status_bar_menu_action, save_status_bar_settings,
+    status_bar_action_effects, status_bar_collapse_menu_label, status_bar_icon_png_bytes,
+    status_bar_plugin_items_collapse_update, status_bar_quit_menu_label,
+    tool_status_bar_menu_action, tool_status_bar_quit_menu_id, NativeStatusBarActivation,
+    PrimaryStatusBarMenuAction, StatusBarActionEffect, StatusBarSettings, StatusBarState,
+    StatusBarSupport, ToolStatusBarMenuAction, UpdateStatusBarSettingsInput,
 };
 
 fn plugin_record(name: &str, enabled: bool, order: Option<u32>) -> PluginRecord {
@@ -318,6 +322,81 @@ fn grouped_status_item_routes_each_horizontal_cell_and_keeps_primary_on_the_righ
         grouped_status_item_id_at_x(&items, false, 99.0, 100.0, 66.0),
         None
     );
+}
+
+#[test]
+fn grouped_status_item_returns_the_resolved_virtual_cell_rectangle() {
+    let records = [
+        plugin_record("zero.snap", true, Some(20)),
+        plugin_record("zero.awake", true, Some(10)),
+    ];
+    let settings = StatusBarSettings::default_for_records(&records);
+    let items = normalize_status_bar_items(
+        &records,
+        &settings,
+        false,
+        StatusBarSupport::NativeMultiItem,
+    );
+    let grouped_rect = tauri::Rect {
+        position: tauri::PhysicalPosition::new(100, 2).into(),
+        size: tauri::PhysicalSize::new(66, 22).into(),
+    };
+
+    assert_physical_rect(
+        grouped_status_item_cell_rect(&items, false, "zero.awake.status", grouped_rect)
+            .expect("awake cell"),
+        (100, 2, 22, 22),
+    );
+    assert_physical_rect(
+        grouped_status_item_cell_rect(&items, false, PRIMARY_STATUS_ITEM_ID, grouped_rect)
+            .expect("primary cell"),
+        (144, 2, 22, 22),
+    );
+    assert!(
+        grouped_status_item_cell_rect(&items, true, "zero.awake.status", grouped_rect).is_none()
+    );
+    assert!(grouped_status_item_cell_rect(
+        &items,
+        false,
+        "zero.awake.status",
+        tauri::Rect {
+            position: tauri::LogicalPosition::new(100.0, 2.0).into(),
+            size: tauri::LogicalSize::new(66.0, 22.0).into(),
+        },
+    )
+    .is_none());
+}
+
+fn assert_physical_rect(rect: tauri::Rect, expected: (i32, i32, u32, u32)) {
+    match (rect.position, rect.size) {
+        (tauri::Position::Physical(position), tauri::Size::Physical(size)) => {
+            assert_eq!((position.x, position.y, size.width, size.height), expected);
+        }
+        _ => panic!("expected physical rectangle"),
+    }
+}
+
+#[test]
+fn native_status_bar_activation_specializes_only_launch_and_paper() {
+    assert_eq!(
+        native_status_bar_activation(Some(ZERO_LAUNCH_PLUGIN_ID)),
+        NativeStatusBarActivation::Launch
+    );
+    assert_eq!(
+        native_status_bar_activation(Some(ZERO_PAPER_PLUGIN_ID)),
+        NativeStatusBarActivation::Paper
+    );
+    for plugin_name in [
+        Some(ZERO_SNAP_PLUGIN_ID),
+        Some(ZERO_AWAKE_PLUGIN_ID),
+        Some("market.tool"),
+        None,
+    ] {
+        assert_eq!(
+            native_status_bar_activation(plugin_name),
+            NativeStatusBarActivation::ExistingAction
+        );
+    }
 }
 
 #[test]

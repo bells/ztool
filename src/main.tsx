@@ -12,6 +12,7 @@ import { resolveAppSurface } from "./appShell/appSurface";
 import CaptureApp from "./plugins/screenshot/capture/CaptureApp";
 import PinApp from "./plugins/screenshot/capture/PinApp";
 import QuickLauncherApp from "./plugins/quickLauncher/QuickLauncherApp";
+import PaperApp from "./plugins/bingWallpaper/PaperApp";
 
 const label = getCurrentWindow().label;
 const surface = resolveAppSurface(label);
@@ -20,6 +21,8 @@ const RoutedApp =
     ? CaptureApp
     : surface === "launcher"
       ? QuickLauncherApp
+      : surface === "paper"
+        ? PaperApp
     : surface === "pin"
       ? PinApp
       : surface === "main"

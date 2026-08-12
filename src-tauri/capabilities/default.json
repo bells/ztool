@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capability for the Zero app shell windows",
-  "windows": ["tray", "main", "preferences", "about", "capture", "pin-*", "launcher"],
+  "windows": ["tray", "main", "preferences", "about", "capture", "pin-*", "launcher", "paper"],
   "permissions": [
     "core:default",
     "autostart:default",
