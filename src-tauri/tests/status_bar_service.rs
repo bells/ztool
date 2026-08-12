@@ -8,15 +8,13 @@ use zero_lib::plugins::contracts::{
     StatusBarIconId,
 };
 use zero_lib::services::status_bar::{
-    load_status_bar_settings, native_status_item_creation_order, native_status_item_length,
-    native_status_item_visible, native_tool_status_item_visibility_updates,
-    normalize_status_bar_items, primary_status_bar_menu_action, save_status_bar_settings,
-    status_bar_action_effects, status_bar_collapse_menu_label, status_bar_icon_png_bytes,
-    status_bar_plugin_items_collapse_update, status_bar_quit_menu_label,
-    tool_status_bar_menu_action, tool_status_bar_quit_menu_id, NativeStatusItemRole,
-    PrimaryStatusBarMenuAction, StatusBarActionEffect, StatusBarSettings, StatusBarState,
-    StatusBarSupport, ToolStatusBarMenuAction, UpdateStatusBarSettingsInput,
-    MACOS_COMPACT_STATUS_ITEM_LENGTH,
+    grouped_status_item_id_at_x, grouped_status_item_ids, grouped_status_item_length,
+    load_status_bar_settings, normalize_status_bar_items, primary_status_bar_menu_action,
+    save_status_bar_settings, status_bar_action_effects, status_bar_collapse_menu_label,
+    status_bar_icon_png_bytes, status_bar_plugin_items_collapse_update, status_bar_quit_menu_label,
+    tool_status_bar_menu_action, tool_status_bar_quit_menu_id, PrimaryStatusBarMenuAction,
+    StatusBarActionEffect, StatusBarSettings, StatusBarState, StatusBarSupport,
+    ToolStatusBarMenuAction, UpdateStatusBarSettingsInput,
 };
 
 fn plugin_record(name: &str, enabled: bool, order: Option<u32>) -> PluginRecord {
@@ -257,7 +255,7 @@ fn status_bar_items_filter_sort_and_reflect_caffeine_state() {
 }
 
 #[test]
-fn status_bar_native_creation_order_rebuilds_primary_last_for_visual_order() {
+fn grouped_status_item_expands_tools_to_the_left_of_primary_in_one_native_slot() {
     let records = [
         plugin_record("zero.snap", true, Some(20)),
         plugin_record("zero.awake", true, Some(10)),
@@ -271,70 +269,55 @@ fn status_bar_native_creation_order_rebuilds_primary_last_for_visual_order() {
     );
 
     assert_eq!(
-        native_status_item_creation_order(&items),
+        grouped_status_item_ids(&items, false),
         vec![
-            "zero.snap.status".to_string(),
             "zero.awake.status".to_string(),
-            "zero.primary".to_string(),
-        ],
+            "zero.snap.status".to_string(),
+            PRIMARY_STATUS_ITEM_ID.to_string(),
+        ]
     );
+    assert_eq!(grouped_status_item_length(&items, false), 66.0);
+    assert_eq!(
+        grouped_status_item_ids(&items, true),
+        vec![PRIMARY_STATUS_ITEM_ID.to_string()]
+    );
+    assert_eq!(grouped_status_item_length(&items, true), 22.0);
 }
 
 #[test]
-fn status_bar_native_layout_keeps_compact_lengths_and_hides_collapsed_tools() {
-    assert_eq!(MACOS_COMPACT_STATUS_ITEM_LENGTH, 22.0);
-    assert_eq!(
-        native_status_item_length(
-            StatusBarSupport::NativeMultiItem,
-            NativeStatusItemRole::Primary,
-            true,
-        ),
-        Some(22.0),
-    );
-    assert_eq!(
-        native_status_item_length(
-            StatusBarSupport::NativeMultiItem,
-            NativeStatusItemRole::Tool,
-            false,
-        ),
-        Some(22.0),
-    );
-    assert_eq!(
-        native_status_item_length(
-            StatusBarSupport::NativeMultiItem,
-            NativeStatusItemRole::Tool,
-            true,
-        ),
-        Some(22.0),
-    );
-    assert!(native_status_item_visible(
-        StatusBarSupport::NativeMultiItem,
-        NativeStatusItemRole::Primary,
-        true,
-    ));
-    assert!(native_status_item_visible(
-        StatusBarSupport::NativeMultiItem,
-        NativeStatusItemRole::Tool,
+fn grouped_status_item_routes_each_horizontal_cell_and_keeps_primary_on_the_right() {
+    let records = [
+        plugin_record("zero.snap", true, Some(20)),
+        plugin_record("zero.awake", true, Some(10)),
+    ];
+    let settings = StatusBarSettings::default_for_records(&records);
+    let items = normalize_status_bar_items(
+        &records,
+        &settings,
         false,
-    ));
-    assert!(!native_status_item_visible(
         StatusBarSupport::NativeMultiItem,
-        NativeStatusItemRole::Tool,
-        true,
-    ));
-    assert_eq!(
-        native_status_item_length(
-            StatusBarSupport::FallbackActionRow,
-            NativeStatusItemRole::Tool,
-            true,
-        ),
-        None,
     );
-    assert!(!native_status_item_visible(
-        StatusBarSupport::FallbackActionRow,
-        NativeStatusItemRole::Tool,
-        false,
-    ));
+
+    assert_eq!(
+        grouped_status_item_id_at_x(&items, false, 111.0, 100.0, 66.0).as_deref(),
+        Some("zero.awake.status")
+    );
+    assert_eq!(
+        grouped_status_item_id_at_x(&items, false, 133.0, 100.0, 66.0).as_deref(),
+        Some("zero.snap.status")
+    );
+    assert_eq!(
+        grouped_status_item_id_at_x(&items, false, 155.0, 100.0, 66.0).as_deref(),
+        Some(PRIMARY_STATUS_ITEM_ID)
+    );
+    assert_eq!(
+        grouped_status_item_id_at_x(&items, true, 111.0, 100.0, 22.0).as_deref(),
+        Some(PRIMARY_STATUS_ITEM_ID)
+    );
+    assert_eq!(
+        grouped_status_item_id_at_x(&items, false, 99.0, 100.0, 66.0),
+        None
+    );
 }
 
 #[test]
@@ -384,32 +367,6 @@ fn tool_status_bar_menu_routes_only_its_unique_quit_action() {
         tool_status_bar_menu_action("zero.status-bar.quit", "zero.launch.status"),
         None
     );
-}
-
-#[test]
-fn existing_layout_visibility_updates_never_include_the_primary_item() {
-    let tool_ids = vec![
-        "status-bar:zero.launch.status".to_string(),
-        "status-bar:zero.awake.status".to_string(),
-    ];
-
-    assert_eq!(
-        native_tool_status_item_visibility_updates(&tool_ids, true),
-        vec![
-            ("status-bar:zero.launch.status".to_string(), false),
-            ("status-bar:zero.awake.status".to_string(), false),
-        ]
-    );
-    assert_eq!(
-        native_tool_status_item_visibility_updates(&tool_ids, false),
-        vec![
-            ("status-bar:zero.launch.status".to_string(), true),
-            ("status-bar:zero.awake.status".to_string(), true),
-        ]
-    );
-    assert!(native_tool_status_item_visibility_updates(&tool_ids, false)
-        .iter()
-        .all(|(id, _)| id != PRIMARY_STATUS_ITEM_ID));
 }
 
 #[test]

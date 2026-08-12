@@ -1,30 +1,30 @@
 ## ADDED Requirements
 
-### Requirement: macOS status items use one compact width
-On macOS, the system SHALL apply one shared compact native width to the primary Zero status item and every expanded visible tool status item. The shared width SHALL be 22pt after real-device comparison with 24pt and MUST be defined in one macOS-specific configuration value so it can be tuned consistently without changing individual item logic.
+### Requirement: macOS status item uses compact cells
+On macOS, the system SHALL render the primary Zero icon and every expanded visible tool icon as cells within one native status item. Each cell SHALL be 22pt wide after real-device comparison with 24pt, and the shared cell width MUST be defined in one macOS-specific configuration value so it can be tuned consistently without changing individual item logic.
 
-#### Scenario: Expanded items use the compact width
+#### Scenario: Expanded icons use compact cells
 - **WHEN** Zero creates or refreshes the macOS status bar while the tool group is expanded
-- **THEN** the primary item and every visible tool item use the shared 22pt compact width
+- **THEN** one native status item renders every visible tool icon followed by the primary Ø icon in shared 22pt cells
 
-#### Scenario: Compact width is tuned centrally
+#### Scenario: Compact cell width is tuned centrally
 - **WHEN** the shared compact-width value is adjusted
-- **THEN** the primary item and every expanded visible tool item use the new value without per-item overrides
+- **THEN** the primary and tool cells use the new value without per-icon overrides
 
 ### Requirement: Tool items can be collapsed and expanded persistently
-The system SHALL persist whether the macOS tool-item group is collapsed. Collapsing SHALL remove each tool status item's reserved menu-bar space while retaining the primary Zero item at the compact width; expanding SHALL restore each visible tool item to the shared compact width.
+The system SHALL persist whether the macOS tool-item group is collapsed. Collapsing SHALL shrink the grouped native item to the primary Zero cell so no tool space remains; expanding SHALL grow the same native item to include each visible tool cell.
 
 #### Scenario: User collapses visible tool items
 - **WHEN** the user selects “Collapse Tool Icons” from the primary Zero item's right-click menu
-- **THEN** all visible macOS tool status items are hidden without reserved blank slots, the primary item remains visible at the compact width, and the collapsed state is persisted
+- **THEN** the grouped native item shrinks to the primary cell without reserved blank slots, the primary remains visible, and the collapsed state is persisted
 
 #### Scenario: User expands collapsed tool items
 - **WHEN** the user selects “Expand Tool Icons” from the primary Zero item's right-click menu
-- **THEN** all visible macOS tool items return to the shared compact width, the primary Ø item remains continuously visible without a visibility round trip, and the expanded state is persisted
+- **THEN** the same native status item grows leftward to restore all visible tool cells next to its primary Ø cell instead of creating icons at the leading edge of the menu bar, the primary remains continuously visible, and the expanded state is persisted
 
 #### Scenario: Restart restores collapsed state
 - **WHEN** Zero starts with the persisted tool-item group marked collapsed
-- **THEN** it creates the primary item at the compact width and keeps the tool status items hidden before presenting the native layout
+- **THEN** it creates one native status item at the primary-cell width before presenting the native layout
 
 #### Scenario: Existing settings migrate as expanded
 - **WHEN** Zero loads a status-bar settings file created before the collapsed-state field existed
@@ -32,7 +32,7 @@ The system SHALL persist whether the macOS tool-item group is collapsed. Collaps
 
 #### Scenario: Native refresh preserves layout state
 - **WHEN** a settings update, plugin lifecycle event, or stateful tool-icon update refreshes the macOS status items
-- **THEN** the refreshed items reapply the persisted collapsed or expanded widths without changing that state
+- **THEN** the grouped item reapplies its template image and persisted collapsed or expanded width without changing that state or its native position
 
 ### Requirement: Primary-item interactions remain unambiguous
 The primary Zero item SHALL retain its existing left-click tray-panel action and SHALL expose collapse or expand only through its native right-click menu. The menu label SHALL describe the action that will occur from the current persisted state.
@@ -51,7 +51,7 @@ The primary Zero item SHALL retain its existing left-click tray-panel action and
 
 #### Scenario: Collapse retains the primary recovery icon
 - **WHEN** the user selects the collapse action from the primary item's own native menu
-- **THEN** the existing primary Ø item remains visible and registered while the tool status items release their menu-bar slots
+- **THEN** the existing grouped native item remains registered and shrinks to its primary Ø cell
 
 #### Scenario: Primary menu offers quit as the second action
 - **WHEN** the user opens the primary Ø item's right-click menu
@@ -62,15 +62,15 @@ The primary Zero item SHALL retain its existing left-click tray-panel action and
 - **THEN** Zero exits cleanly
 
 #### Scenario: Expanded tool actions remain direct
-- **WHEN** the tool group is expanded and the user clicks a tool status item
+- **WHEN** the tool group is expanded and the user clicks a tool cell
 - **THEN** Zero runs the tool's existing approved native action without toggling the tray panel or collapse state
 
 #### Scenario: Tool menu offers quit as its first action
-- **WHEN** the user right-clicks any expanded macOS tool status item
+- **WHEN** the user right-clicks any expanded macOS tool cell
 - **THEN** its first menu item is “Quit Zero Status Bar” in the applicable native language
 
 #### Scenario: User quits from a tool menu
-- **WHEN** the user selects “Quit Zero Status Bar” from any tool status item's menu
+- **WHEN** the user selects “Quit Zero Status Bar” from any tool cell's menu
 - **THEN** Zero exits cleanly without running that tool's left-click action
 
 ### Requirement: Non-macOS platforms retain the single-icon fallback
