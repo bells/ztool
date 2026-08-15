@@ -1,6 +1,6 @@
 import { ScreenshotAction, useScreenshotPlugin } from "./useScreenshotPlugin";
 import { SCREENSHOT_SHORTCUT, SCREENSHOT_USAGE_KEYS } from "./screenshotMeta";
-import type { TranslationKey } from "../preferences/i18n";
+import type { TranslationKey } from "./i18n";
 
 const pendingTools = [
   { key: "rectangle", icon: "□", labelKey: "tool.rectangle" },

@@ -91,7 +91,7 @@
 
 - [x] 10.1 Update README and plugin developer/protocol documentation with Zero Launch behavior, default shortcut, supported platforms, local cache/usage paths, four permissions, Bridge methods, privacy, and the decision not to use `plugin.wasm`.
 - [x] 10.2 Run focused TypeScript compilation and Node tests for launcher contracts, model, service, Hook/controller, app-surface routing, bundled manifest, preferences, permissions, and Bridge changes.
-- [ ] 10.3 Run `node --test tests/*.mjs`, `pnpm build`, `cargo fmt --check`, `cargo check`, `cargo test`, and `git diff --check`, fixing regressions across the existing three plugins.
+- [ ] 10.3 Run the recursive `pnpm test` suite, `pnpm build`, `cargo fmt --check`, `cargo check`, `cargo test`, and `git diff --check`, fixing regressions across the existing three plugins.
 - [x] 10.4 Add or run Windows CI for the selected shortcut parser, Shell/window API feature set, URI catalog, scanner/cache/service tests, and `x86_64-pc-windows-msvc` compilation.
 - [x] 10.5 Run the release search benchmark on documented reference hardware and attach the 10,000-entry p50/p95 result, confirming p95 `< 5ms` or resolving the performance gate.
 - [ ] 10.6 Run `pnpm tauri dev` on macOS and manually verify panel search, shortcut window, English/Chinese/pinyin/initial/alias queries, cache-first reopen, running app focus, cold app launch, every supported setting link, usage reorder, keyboard operation, blur/Escape, disabled plugin, and shortcut conflict behavior.

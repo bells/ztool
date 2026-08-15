@@ -1,4 +1,4 @@
-import type { PluginRecord } from "../plugins/pluginHost/contracts";
+import type { PluginRecord } from "../core/pluginHost/contracts";
 import {
   createStatusBarPreview,
   getStatusBarFallbackItems,

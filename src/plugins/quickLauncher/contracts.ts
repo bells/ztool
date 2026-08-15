@@ -25,10 +25,10 @@ export interface QuickLauncherIndexSnapshot {
   diagnostics: QuickLauncherDiagnostic[];
 }
 
-export interface QuickLauncherSearchInput {
-  query: string;
-  limit?: number;
-}
+export type {
+  QuickLauncherActivateInput,
+  QuickLauncherSearchInput,
+} from "../../core/pluginHost/launcherContracts";
 
 export interface QuickLauncherResultItem {
   id: string;
@@ -45,11 +45,6 @@ export interface QuickLauncherSearchResult {
   query: string;
   elapsedMicros: number;
   items: QuickLauncherResultItem[];
-}
-
-export interface QuickLauncherActivateInput {
-  itemId: string;
-  revision: number;
 }
 
 export type QuickLauncherActivationAction =

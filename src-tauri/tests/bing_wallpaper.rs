@@ -14,11 +14,11 @@ use serde_json::json;
 use zero_lib::plugins::contracts::{
     NativeResourceError, NetworkFetchRequest, NetworkFetchResponse,
 };
+use zero_lib::services::bing_wallpaper::WallpaperSetter;
 use zero_lib::services::bing_wallpaper::{
     merge_wallpaper_items, parse_bing_archive, BingFetchFuture, BingWallpaperFetcher,
     BingWallpaperItem, BingWallpaperSnapshot, BingWallpaperState, BING_ARCHIVE_URL,
 };
-use zero_lib::services::wallpaper::WallpaperSetter;
 
 struct TestDir(PathBuf);
 
@@ -492,7 +492,7 @@ fn wallpaper_contract_serializes_stable_camel_case_and_rejects_bad_shapes() {
         refreshed_at: None,
         market: "zh-CN".into(),
         stale: false,
-        platform: zero_lib::services::wallpaper::platform_capability(),
+        platform: zero_lib::services::bing_wallpaper::platform_capability(),
         error: None,
     };
     let serialized = serde_json::to_value(snapshot).expect("serialize snapshot");

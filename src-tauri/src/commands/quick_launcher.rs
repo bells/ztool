@@ -6,8 +6,9 @@ use crate::services::quick_launcher::contracts::{
     QuickLauncherSearchInput, QuickLauncherSearchResult,
 };
 use crate::services::quick_launcher::{system_language, QuickLauncherState};
+use crate::services::tool_windows::{hide_tool_window, prepare_tool_window, ToolWindowKind};
 
-pub const LAUNCHER_WINDOW_LABEL: &str = "launcher";
+pub const LAUNCHER_WINDOW_LABEL: &str = ToolWindowKind::QuickLauncher.label();
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum QuickLauncherToggleAction {
@@ -104,12 +105,7 @@ pub fn activate_quick_launcher_item(
 
 #[tauri::command]
 pub fn show_quick_launcher_window(app: tauri::AppHandle) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("tray") {
-        window
-            .hide()
-            .map_err(|error| format!("failed to hide Zero tray window: {error}"))?;
-    }
-    crate::commands::paper::hide_paper_window(&app)?;
+    prepare_tool_window(&app, ToolWindowKind::QuickLauncher)?;
     let options = quick_launcher_window_options();
     let window = if let Some(window) = app.get_webview_window(options.label) {
         window
@@ -187,10 +183,5 @@ mod tests {
 
 #[tauri::command]
 pub fn hide_quick_launcher_window(app: tauri::AppHandle) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window(LAUNCHER_WINDOW_LABEL) {
-        window
-            .hide()
-            .map_err(|error| format!("failed to hide Zero Launch window: {error}"))?;
-    }
-    Ok(())
+    hide_tool_window(&app, ToolWindowKind::QuickLauncher)
 }

@@ -1,4 +1,4 @@
-import type { TranslationKey } from "../preferences/i18n";
+import type { TranslationKey } from "./i18n";
 import { bingWallpaperDisplayTitle } from "./bingWallpaperModel";
 import { useBingWallpaper } from "./useBingWallpaper";
 

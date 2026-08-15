@@ -4,7 +4,7 @@ import type {
   PluginSource,
   StatusBarAction,
   StatusBarIconId,
-} from "../plugins/pluginHost/contracts";
+} from "../core/pluginHost/contracts";
 import {
   FIRST_PARTY_PLUGIN_IDS,
   PRODUCT_NAME,

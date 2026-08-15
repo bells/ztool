@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import type { KeyboardEvent } from "react";
-import type { TranslationKey } from "../preferences/i18n";
+import type { TranslationKey } from "./i18n";
 import type { QuickLauncherController } from "./useQuickLauncher";
 
 interface QuickLauncherViewProps {

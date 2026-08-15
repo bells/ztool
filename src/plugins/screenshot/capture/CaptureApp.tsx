@@ -57,9 +57,13 @@ import {
   type CaptureToolbarPosition,
 } from "./captureToolbarModel";
 import type { AnnotationObject, CaptureSession, CaptureTool, Point } from "./captureTypes";
-import { createTranslator, resolveLanguage, type TranslationKey } from "../../preferences/i18n";
-import { normalizePreferences } from "../../preferences/preferencesModel";
-import { readStoredPreferences } from "../../preferences/preferencesStorage";
+import { resolveLanguage } from "../../../core/preferences/i18n";
+import { normalizePreferences } from "../../../core/preferences/preferencesModel";
+import { readStoredPreferences } from "../../../core/preferences/preferencesStorage";
+import {
+  createScreenshotTranslator,
+  type TranslationKey,
+} from "../i18n";
 
 type DraftAnnotation = AnnotationObject | null;
 
@@ -100,7 +104,9 @@ function toImageSrc(imageBase64: string): string {
 
 export function CaptureApp() {
   const preferences = normalizePreferences(readStoredPreferences(window.localStorage), []);
-  const t = createTranslator(resolveLanguage(preferences.language, navigator.language));
+  const t = createScreenshotTranslator(
+    resolveLanguage(preferences.language, navigator.language),
+  );
   const [session, setSession] = useState<CaptureSession | null>(null);
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [baseImage, setBaseImage] = useState<HTMLImageElement | null>(null);

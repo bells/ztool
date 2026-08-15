@@ -1,0 +1,73 @@
+import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+
+const OUTPUT_ROOT = "/private/tmp/zero-tests";
+const PACKAGE_MANAGER = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+
+const sources = [
+  "src/brand/identity.ts",
+  "src/appShell/appSurface.ts",
+  "src/core/pluginHost/contracts.ts",
+  "src/core/pluginHost/extensionBridge.ts",
+  "src/core/pluginHost/launcherContracts.ts",
+  "src/core/pluginHost/pluginHostModel.ts",
+  "src/core/pluginHost/pluginHostServiceCore.ts",
+  "src/core/pluginHost/pluginMarketModel.ts",
+  "src/core/pluginHost/pluginModule.ts",
+  "src/core/pluginHost/pluginModuleRegistry.ts",
+  "src/core/pluginHost/pluginTypes.ts",
+  "src/core/pluginHost/validation.ts",
+  "src/core/preferences/i18n.ts",
+  "src/core/preferences/preferencesModel.ts",
+  "src/core/preferences/preferencesStorage.ts",
+  "src/plugins/bingWallpaper/bingWallpaperController.ts",
+  "src/plugins/bingWallpaper/bingWallpaperModel.ts",
+  "src/plugins/bingWallpaper/bingWallpaperServiceCore.ts",
+  "src/plugins/bingWallpaper/contracts.ts",
+  "src/plugins/bingWallpaper/i18n.ts",
+  "src/plugins/caffeine/caffeineDuration.ts",
+  "src/plugins/caffeine/i18n.ts",
+  "src/plugins/quickLauncher/contracts.ts",
+  "src/plugins/quickLauncher/i18n.ts",
+  "src/plugins/quickLauncher/quickLauncherModel.ts",
+  "src/plugins/quickLauncher/quickLauncherServiceCore.ts",
+  "src/plugins/screenshot/capture/captureCanvas.ts",
+  "src/plugins/screenshot/capture/captureHotkeys.ts",
+  "src/plugins/screenshot/capture/captureReducer.ts",
+  "src/plugins/screenshot/capture/captureSelectionModel.ts",
+  "src/plugins/screenshot/capture/captureSerialize.ts",
+  "src/plugins/screenshot/capture/captureToolbarModel.ts",
+  "src/plugins/screenshot/i18n.ts",
+  "src/plugins/screenshot/screenshotMeta.ts",
+  "src/components/statusBarIconSources.ts",
+  "src/services/appWindowService.ts",
+  "src/services/statusBarController.ts",
+  "src/services/statusBarModel.ts",
+  "src/services/statusBarService.ts",
+];
+
+fs.rmSync(OUTPUT_ROOT, { recursive: true, force: true });
+execFileSync(
+  PACKAGE_MANAGER,
+  [
+    "exec",
+    "tsc",
+    ...sources,
+    "--module",
+    "ES2020",
+    "--moduleResolution",
+    "bundler",
+    "--target",
+    "ES2022",
+    "--rootDir",
+    "src",
+    "--outDir",
+    OUTPUT_ROOT,
+    "--noEmit",
+    "false",
+    "--skipLibCheck",
+    "--jsx",
+    "react-jsx",
+  ],
+  { cwd: process.cwd(), stdio: "inherit" },
+);

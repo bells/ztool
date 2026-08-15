@@ -1,16 +1,17 @@
 import { useCallback, useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { BingWallpaperPanel } from "./BingWallpaperPanel";
-import { createTranslator, resolveLanguage } from "../preferences/i18n";
-import { normalizePreferences } from "../preferences/preferencesModel";
-import { readStoredPreferences } from "../preferences/preferencesStorage";
+import { resolveLanguage } from "../../core/preferences/i18n";
+import { normalizePreferences } from "../../core/preferences/preferencesModel";
+import { readStoredPreferences } from "../../core/preferences/preferencesStorage";
+import { createBingWallpaperTranslator } from "./i18n";
 
 export default function PaperApp() {
   const preferences = normalizePreferences(
     readStoredPreferences(window.localStorage),
     [],
   );
-  const t = createTranslator(
+  const t = createBingWallpaperTranslator(
     resolveLanguage(preferences.language, navigator.language),
   );
   const dismiss = useCallback(() => {

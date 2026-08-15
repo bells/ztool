@@ -9,29 +9,29 @@ import {
   TrayPanelApp,
 } from "./App";
 import { resolveAppSurface } from "./appShell/appSurface";
-import CaptureApp from "./plugins/screenshot/capture/CaptureApp";
-import PinApp from "./plugins/screenshot/capture/PinApp";
-import QuickLauncherApp from "./plugins/quickLauncher/QuickLauncherApp";
-import PaperApp from "./plugins/bingWallpaper/PaperApp";
+import { bundledPluginSurface } from "./appShell/bundledPluginModules";
+import type { BundledPluginSurface } from "./core/pluginHost/pluginModule";
 
 const label = getCurrentWindow().label;
 const surface = resolveAppSurface(label);
+const pluginSurface = isBundledPluginSurface(surface)
+  ? bundledPluginSurface(surface)
+  : undefined;
 const RoutedApp =
-  surface === "capture"
-    ? CaptureApp
-    : surface === "launcher"
-      ? QuickLauncherApp
-      : surface === "paper"
-        ? PaperApp
-    : surface === "pin"
-      ? PinApp
-      : surface === "main"
+  pluginSurface ??
+  (surface === "main"
         ? MainWindowApp
         : surface === "preferences"
           ? PreferencesWindowApp
           : surface === "about"
             ? AboutWindowApp
-            : TrayPanelApp;
+            : TrayPanelApp);
+
+function isBundledPluginSurface(
+  surface: string,
+): surface is BundledPluginSurface {
+  return ["capture", "pin", "launcher", "paper"].includes(surface);
+}
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>

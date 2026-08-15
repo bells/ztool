@@ -1,25 +1,27 @@
 import { useEffect, useMemo, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import "./App.css";
+import {
+  bundledPluginPresentation,
+  pluginAccentClass,
+  renderBundledPluginPanel,
+} from "./appShell/bundledPluginModules";
 import { PRODUCT_NAME } from "./brand/identity";
 import { StatusBarGlyph } from "./components/StatusBarGlyph";
-import { BingWallpaperPanel } from "./plugins/bingWallpaper/BingWallpaperPanel";
-import { CaffeinePanel } from "./plugins/caffeine/CaffeinePanel";
-import {
-  bundledPluginKind,
-  pluginAccentClass,
-} from "./plugins/pluginHost/bundledPlugins";
-import { PluginManagerPanel } from "./plugins/pluginHost/PluginManagerPanel";
-import type { PluginRecord } from "./plugins/pluginHost/contracts";
-import { usePluginHost } from "./plugins/pluginHost/usePluginHost";
-import { AboutPanel } from "./plugins/preferences/AboutPanel";
-import { PreferencesPanel } from "./plugins/preferences/PreferencesPanel";
-import { QuickLauncherPanel } from "./plugins/quickLauncher/QuickLauncherPanel";
-import { createTranslator, resolveLanguage } from "./plugins/preferences/i18n";
-import type { TranslationKey } from "./plugins/preferences/i18n";
-import { usePreferences } from "./plugins/preferences/usePreferences";
-import { ScreenshotPanel } from "./plugins/screenshot/ScreenshotPanel";
-import { PluginId, PluginMeta } from "./plugins/types";
+import { PluginManagerPanel } from "./core/pluginHost/PluginManagerPanel";
+import { ExtensionSurface } from "./core/pluginHost/ExtensionSurface";
+import type { PluginRecord } from "./core/pluginHost/contracts";
+import type { PluginId, PluginMeta } from "./core/pluginHost/pluginTypes";
+import { usePluginHost } from "./core/pluginHost/usePluginHost";
+import { AboutPanel } from "./core/preferences/AboutPanel";
+import { PreferencesPanel } from "./core/preferences/PreferencesPanel";
+import { createTranslator, resolveLanguage } from "./core/preferences/i18n";
+import type {
+  ResolvedLanguage,
+  TranslationKey,
+} from "./core/preferences/i18n";
+import { usePreferences } from "./core/preferences/usePreferences";
 import { appWindows } from "./services/appWindows";
 import type { StatusBarItemSnapshot } from "./services/statusBarModel";
 import { useStatusBar } from "./services/useStatusBar";
@@ -57,10 +59,10 @@ function useLocalizedPlugins() {
   );
   const t = createTranslator(resolvedLanguage);
   const localizedPlugins = preferencePlugins.map((plugin) =>
-    localizePluginMeta(plugin, t),
+    localizePluginMeta(plugin, resolvedLanguage),
   );
   const visiblePlugins = navigationPlugins.map((plugin) =>
-    localizePluginMeta(plugin, t),
+    localizePluginMeta(plugin, resolvedLanguage),
   ).filter((plugin) =>
     preferences.visiblePluginIds.includes(plugin.id),
   );
@@ -93,6 +95,7 @@ function useLocalizedPlugins() {
     pluginHost,
     preferences,
     t,
+    resolvedLanguage,
     localizedPlugins,
     visiblePlugins,
     pluginSummary: pluginHost.summary,
@@ -163,25 +166,17 @@ function useSelectedPlugin(
   };
 }
 
-function pluginPanel(plugin: PluginMeta | undefined, t: (key: TranslationKey) => string) {
+function pluginPanel(
+  plugin: PluginMeta | undefined,
+  language: ResolvedLanguage,
+) {
   if (!plugin) {
-    return <EmptyPluginState t={t} />;
+    return <EmptyPluginState t={createTranslator(language)} />;
   }
 
-  if (bundledPluginKind(plugin.id) === "caffeine") {
-    return <CaffeinePanel t={t} />;
-  }
-
-  if (bundledPluginKind(plugin.id) === "screenshot") {
-    return <ScreenshotPanel t={t} />;
-  }
-
-  if (bundledPluginKind(plugin.id) === "bing-wallpaper") {
-    return <BingWallpaperPanel t={t} />;
-  }
-
-  if (bundledPluginKind(plugin.id) === "quick-launcher") {
-    return <QuickLauncherPanel t={t} />;
+  const bundledPanel = renderBundledPluginPanel(plugin.id, language);
+  if (bundledPanel !== undefined) {
+    return bundledPanel;
   }
 
   return <GenericPluginPanel plugin={plugin} />;
@@ -247,6 +242,21 @@ function EmptyPluginState({ t }: { t: (key: TranslationKey) => string }) {
 }
 
 function GenericPluginPanel({ plugin }: { plugin: PluginMeta }) {
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  if (plugin.assetUrl) {
+    return (
+      <section className="plugin-panel system-panel">
+        {loadError ? <p className="shell-message error">{loadError}</p> : null}
+        <ExtensionSurface
+          title={plugin.title}
+          assetUrl={plugin.assetUrl}
+          onLoadError={setLoadError}
+        />
+      </section>
+    );
+  }
+
   return (
     <section className="plugin-panel system-panel">
       <div className="panel-heading">
@@ -273,43 +283,21 @@ function pluginRecordToMeta(record: PluginRecord): PluginMeta {
     subtitle: record.manifest.description ?? `${record.source} · ${record.version}`,
     health: record.health,
     enabled: record.enabled,
+    assetUrl: record.installedPath
+      ? convertFileSrc(`${record.installedPath}/${record.manifest.main}`)
+      : undefined,
   };
 }
 
 function localizePluginMeta(
   plugin: PluginMeta,
-  t: (key: TranslationKey) => string,
+  language: ResolvedLanguage,
 ): PluginMeta {
-  const builtin = bundledPluginKind(plugin.id);
-  if (builtin === "screenshot") {
+  const presentation = bundledPluginPresentation(plugin.id, language);
+  if (presentation) {
     return {
       ...plugin,
-      title: t("plugin.screenshot.title"),
-      subtitle: t("plugin.screenshot.subtitle"),
-    };
-  }
-
-  if (builtin === "caffeine") {
-    return {
-      ...plugin,
-      title: t("plugin.caffeine.title"),
-      subtitle: t("plugin.caffeine.subtitle"),
-    };
-  }
-
-  if (builtin === "bing-wallpaper") {
-    return {
-      ...plugin,
-      title: t("plugin.bingWallpaper.title"),
-      subtitle: t("plugin.bingWallpaper.subtitle"),
-    };
-  }
-
-  if (builtin === "quick-launcher") {
-    return {
-      ...plugin,
-      title: t("plugin.quickLauncher.title"),
-      subtitle: t("plugin.quickLauncher.subtitle"),
+      ...presentation,
     };
   }
 
@@ -333,7 +321,7 @@ async function runShellAction(
 }
 
 export function TrayPanelApp() {
-  const { pluginHost, t, visiblePlugins, totalPluginCount } = useLocalizedPlugins();
+  const { pluginHost, t, resolvedLanguage, visiblePlugins, totalPluginCount } = useLocalizedPlugins();
   const statusBar = useStatusBar(pluginHost.records);
   const { activePlugin, setSelectedPlugin } = useSelectedPlugin(
     visiblePlugins,
@@ -373,7 +361,7 @@ export function TrayPanelApp() {
         onSelect={setSelectedPlugin}
       />
 
-      {pluginPanel(activePlugin, t)}
+      {pluginPanel(activePlugin, resolvedLanguage)}
 
       {message ? <p className={`shell-message ${message.tone}`}>{message.text}</p> : null}
 
@@ -428,7 +416,7 @@ export function TrayPanelApp() {
 }
 
 export function MainWindowApp() {
-  const { pluginHost, t, visiblePlugins, totalPluginCount } = useLocalizedPlugins();
+  const { pluginHost, t, resolvedLanguage, visiblePlugins, totalPluginCount } = useLocalizedPlugins();
   const { activePlugin, setSelectedPlugin } = useSelectedPlugin(
     visiblePlugins,
     pluginHost.selectedPluginName,
@@ -484,7 +472,7 @@ export function MainWindowApp() {
             </div>
             <span className="status-pill active">{activePlugin?.subtitle ?? t("app.tagline")}</span>
           </div>
-          {pluginPanel(activePlugin, t)}
+          {pluginPanel(activePlugin, resolvedLanguage)}
         </section>
       </div>
     </main>

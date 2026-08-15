@@ -756,7 +756,7 @@ fn run_grouped_status_item_action(
                 rect,
             )
             .and_then(paper_window_anchor);
-            crate::commands::paper::toggle_paper_window(app, anchor)
+            crate::commands::bing_wallpaper::toggle_paper_window(app, anchor)
         }
         NativeStatusBarActivation::ExistingAction => {
             handle_status_bar_action(app.clone(), item.action, item.plugin_name)
@@ -764,10 +764,12 @@ fn run_grouped_status_item_action(
     }
 }
 
-fn paper_window_anchor(rect: tauri::Rect) -> Option<crate::commands::paper::PaperWindowAnchor> {
+fn paper_window_anchor(
+    rect: tauri::Rect,
+) -> Option<crate::commands::bing_wallpaper::PaperWindowAnchor> {
     match (rect.position, rect.size) {
         (tauri::Position::Physical(position), tauri::Size::Physical(size)) => {
-            Some(crate::commands::paper::PaperWindowAnchor {
+            Some(crate::commands::bing_wallpaper::PaperWindowAnchor {
                 x: position.x,
                 y: position.y,
                 width: size.width,

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { createTranslator, resolveLanguage } from "../preferences/i18n";
+import { resolveLanguage } from "../../core/preferences/i18n";
+import { createQuickLauncherTranslator } from "./i18n";
 import { QuickLauncherView } from "./QuickLauncherView";
 import { shouldDismissLauncher } from "./quickLauncherModel";
 import { quickLauncherService } from "./quickLauncherService";
@@ -10,7 +11,9 @@ import { useQuickLauncher } from "./useQuickLauncher";
 export default function QuickLauncherApp() {
   const controller = useQuickLauncher();
   const [focusEpoch, setFocusEpoch] = useState(0);
-  const t = createTranslator(resolveLanguage("system", navigator.language));
+  const t = createQuickLauncherTranslator(
+    resolveLanguage("system", navigator.language),
+  );
   const hide = useCallback(() => {
     void quickLauncherService.hideWindow();
   }, []);

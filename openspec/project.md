@@ -37,22 +37,30 @@ Zero 是一个托盘优先（tray-first）的跨平台桌面工具箱，目标�
       main.tsx                         Routes React entry by Tauri window label
       App.tsx                          Main tray shell and top-level plugin selection
       App.css                          Compact tray UI and capture/pin window styles
+      appShell/
+        bundledPluginModules.ts       Only bundled-plugin composition registry
+      core/
+        pluginHost/                   Registry, market, Extension API Bridge, host contracts/UI
+        preferences/                  Global preferences, About, storage, host localization
       plugins/
-        types.ts                       PluginId and PluginMeta contract
-        screenshot/                    Zero Snap panel, capture editor, pin window helpers
-        caffeine/                      Zero Awake UI and frontend state bridge
-        preferences/                   Preferences, about, i18n, preference model
+        caffeine/                      Self-contained Zero Awake module and descriptor
+        bingWallpaper/                 Self-contained Zero Paper module and descriptor
+        quickLauncher/                 Self-contained Zero Launch module and descriptor
+        screenshot/                    Self-contained Zero Snap module and descriptor
 
     src-tauri/
       src/
         lib.rs                         Tauri builder, tray, shortcut, command registration
-        commands/                      Thin #[tauri::command] handlers
-        services/                      Native service logic and platform-specific behavior
+        bundled_plugins.rs             Trusted native plugin composition
+        commands/                      Thin #[tauri::command] handlers grouped by plugin
+        services/                      Plugin logic plus host-wide coordinators
+        plugins/                       Third-party package registry/runtime host
       capabilities/default.json        Tauri permissions and allowed window labels
       tauri.conf.json                  Window, bundle, build, identifier config
 
     tests/
-      *.mjs                            Node tests for extracted TypeScript business logic
+      unit/                            Pure core/plugin/service/app-shell/brand tests
+      integration/                     Extension host, source-boundary, and shell contracts
 
 ## Architecture Principles
 
@@ -70,15 +78,9 @@ Follow a Clean Architecture style with a pragmatic Tauri boundary:
 
 Each user-facing tool is treated as a plugin.
 
-When adding or renaming a plugin, update these together:
+Bundled plugins are trusted build-time modules. Each plugin owns a typed `plugin.tsx` descriptor, manifest and presentation metadata, local translations, UI surfaces, and domain code. Add or remove one by changing its directory plus the frontend registration in `src/appShell/bundledPluginModules.ts` and native registration in `src-tauri/src/bundled_plugins.rs`. Core must not import concrete plugins, and concrete plugins must not import peers; cross-plugin behavior belongs in a host coordinator.
 
-- src/plugins/types.ts: PluginId and metadata contracts
-- src/App.tsx: plugin list and routing
-- plugin folder under src/plugins/<plugin>/
-- i18n keys in src/plugins/preferences/i18n.ts
-- preference defaults and normalization in src/plugins/preferences/preferencesModel.ts
-- relevant tests under tests/
-- Rust commands/services and Tauri capabilities if native APIs are needed
+Installed third-party `.zplugin` packages are runtime-pluggable through validated manifests, approved permissions, isolated WebView surfaces, and the versioned Extension API Bridge. They cannot dynamically load plugin-provided Rust code.
 
 The main shell should preserve three stable areas:
 
@@ -188,25 +190,19 @@ For non-trivial behavior changes:
 
 Use focused checks while iterating:
 
-    pnpm exec tsc src/plugins/preferences/preferencesModel.ts src/plugins/types.ts --module ES2020 --moduleResolution bundler --target ES2020 --outDir /private/tmp/zero-preferences-test --noEmit false --skipLibCheck
-    node --test tests/preferencesModel.test.mjs
+    pnpm test:unit
+    pnpm test:integration
 
-    pnpm exec tsc src/plugins/preferences/i18n.ts src/plugins/preferences/preferencesModel.ts --module ES2020 --moduleResolution bundler --target ES2020 --outDir /private/tmp/zero-i18n-test --noEmit false --skipLibCheck
-    node --test tests/i18n.test.mjs
-
-    pnpm exec tsc src/plugins/screenshot/screenshotMeta.ts --module ES2020 --moduleResolution bundler --target ES2020 --outDir /private/tmp/zero-screenshot-test --noEmit false --skipLibCheck
-    node --test tests/screenshotMeta.test.mjs
-
-For screenshot capture helpers:
-
-    pnpm exec tsc src/plugins/screenshot/capture/captureReducer.ts src/plugins/screenshot/capture/captureHotkeys.ts src/plugins/screenshot/capture/captureSerialize.ts src/plugins/screenshot/capture/captureCanvas.ts src/plugins/screenshot/capture/captureSelectionModel.ts src/plugins/screenshot/capture/captureToolbarModel.ts --module ES2020 --moduleResolution bundler --target ES2022 --outDir /private/tmp/zero-capture-test --noEmit false --skipLibCheck
-    node --test tests/captureReducer.test.mjs tests/captureHotkeys.test.mjs tests/captureSerialize.test.mjs tests/captureCanvas.test.mjs tests/captureSelectionModel.test.mjs tests/captureToolbarModel.test.mjs tests/captureToolbarSource.test.mjs
+Both focused commands recreate the compiled TypeScript fixture tree at `/private/tmp/zero-tests` and recursively discover the selected level's nested `*.test.mjs` files.
 
 Before considering implementation complete, run the relevant subset plus:
 
-    node --test tests/*.mjs
+    pnpm test
     pnpm build
-    cd src-tauri && cargo check && cargo test
+    cd src-tauri
+    cargo fmt --check
+    cargo check
+    cargo test
     git diff --check
 
 For UI, tray, shortcut, screenshot-window, copy/save, pin-window, or native behavior changes, also run:

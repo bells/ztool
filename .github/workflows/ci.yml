@@ -51,45 +51,9 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Compile preference model tests
+      - name: Run frontend tests
         if: runner.os == 'macOS'
-        run: pnpm exec tsc src/plugins/preferences/preferencesModel.ts src/plugins/types.ts --module ES2020 --moduleResolution bundler --target ES2020 --outDir /private/tmp/ztool-preferences-test --noEmit false --skipLibCheck
-
-      - name: Run preference model tests
-        if: runner.os == 'macOS'
-        run: node --test tests/preferencesModel.test.mjs
-
-      - name: Compile i18n tests
-        if: runner.os == 'macOS'
-        run: pnpm exec tsc src/plugins/preferences/i18n.ts src/plugins/preferences/preferencesModel.ts --module ES2020 --moduleResolution bundler --target ES2020 --outDir /private/tmp/ztool-i18n-test --noEmit false --skipLibCheck
-
-      - name: Run i18n tests
-        if: runner.os == 'macOS'
-        run: node --test tests/i18n.test.mjs
-
-      - name: Compile screenshot metadata tests
-        if: runner.os == 'macOS'
-        run: pnpm exec tsc src/plugins/screenshot/screenshotMeta.ts --module ES2020 --moduleResolution bundler --target ES2020 --outDir /private/tmp/ztool-screenshot-test --noEmit false --skipLibCheck
-
-      - name: Run screenshot metadata tests
-        if: runner.os == 'macOS'
-        run: node --test tests/screenshotMeta.test.mjs
-
-      - name: Compile Bing wallpaper model tests
-        if: runner.os == 'macOS'
-        run: pnpm exec tsc src/plugins/bingWallpaper/contracts.ts src/plugins/bingWallpaper/bingWallpaperModel.ts src/plugins/bingWallpaper/bingWallpaperController.ts src/plugins/bingWallpaper/bingWallpaperServiceCore.ts --module ES2020 --moduleResolution bundler --target ES2022 --outDir /private/tmp/ztool-bing-wallpaper-test --noEmit false --skipLibCheck
-
-      - name: Run Bing wallpaper model tests
-        if: runner.os == 'macOS'
-        run: node --test tests/bingWallpaperModel.test.mjs tests/bingWallpaperController.test.mjs tests/bingWallpaperService.test.mjs
-
-      - name: Compile Quick Launcher tests
-        if: runner.os == 'macOS'
-        run: pnpm exec tsc src/plugins/quickLauncher/contracts.ts src/plugins/quickLauncher/quickLauncherModel.ts src/plugins/quickLauncher/quickLauncherServiceCore.ts --module ES2020 --moduleResolution bundler --target ES2022 --rootDir src/plugins/quickLauncher --outDir /private/tmp/ztool-quick-launcher-test --noEmit false --skipLibCheck
-
-      - name: Run Quick Launcher tests
-        if: runner.os == 'macOS'
-        run: node --test tests/quickLauncherModel.test.mjs tests/quickLauncherService.test.mjs
+        run: pnpm test
 
       - name: Build frontend
         run: pnpm build

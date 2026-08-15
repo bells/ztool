@@ -1,4 +1,4 @@
-import type { TranslationKey } from "../preferences/i18n";
+import type { TranslationKey } from "./i18n";
 import { QuickLauncherView } from "./QuickLauncherView";
 import { useQuickLauncher } from "./useQuickLauncher";
 

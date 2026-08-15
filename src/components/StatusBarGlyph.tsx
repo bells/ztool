@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import type { StatusBarIconId } from "../plugins/pluginHost/contracts";
+import type { StatusBarIconId } from "../core/pluginHost/contracts";
 import { statusBarIconSource } from "./statusBarIconSources";
 
 interface StatusBarGlyphProps {

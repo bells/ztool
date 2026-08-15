@@ -79,26 +79,31 @@ pnpm tauri build
 ```text
 src/
   App.tsx                         Main tray shell
-  App.css                         Application styling
+  appShell/
+    bundledPluginModules.ts       Only bundled-plugin composition registry
+  core/
+    pluginHost/                   Registry, market, Extension API bridge, and host UI
+    preferences/                  Global preferences, About, storage, and host i18n
   plugins/
-    pluginHost/                   Runtime plugin registry, market, extension bridge, and host UI
-    caffeine/                     Zero Awake tool UI and state bridge
-    bingWallpaper/                Bing wallpaper contracts, model, hook, service, and card
-    quickLauncher/                Launcher contracts, model, hook, shared view, panel, and window
-    screenshot/                   Zero Snap tool UI and state bridge
-    preferences/                  Preferences, about, and preference model
+    caffeine/                     Self-contained Zero Awake module
+    bingWallpaper/                Self-contained Zero Paper module
+    quickLauncher/                Self-contained Zero Launch module
+    screenshot/                   Self-contained Zero Snap module
 src-tauri/
   src/
-    commands/                     Tauri command handlers
-    services/                     Native service logic
+    bundled_plugins.rs            Trusted native plugin composition
+    commands/                     Thin Tauri IPC handlers grouped by plugin
+    services/                     Plugin business logic and host coordinators
+    plugins/                      Third-party package registry/runtime host
   capabilities/                   Tauri permission capabilities
 tests/
-  preferencesModel.test.mjs       Preference model tests
-  pluginHost*.test.mjs            Plugin host service/state tests
-  extensionRuntime.test.mjs       Extension bridge and isolation tests
-  i18n.test.mjs                   Language resolution and translation tests
-  screenshotMeta.test.mjs         Zero Snap metadata tests
+  unit/                            Pure core, plugin, service, app-shell, and brand tests
+  integration/                     Extension host, source-boundary, and shell contracts
 ```
+
+Each bundled plugin owns a typed `plugin.tsx` descriptor, its manifest and presentation metadata, plugin-local translations, UI surfaces, and domain code. `src/appShell/bundledPluginModules.ts` is the only frontend file that registers all bundled descriptors; plugins never import peer plugins, and host core never imports concrete plugin implementations.
+
+Bundled plugins are trusted, build-time modules because their native Rust commands and state are compiled into Zero and explicitly registered in `src-tauri/src/bundled_plugins.rs`. Installed third-party `.zplugin` packages remain runtime-pluggable only through validated manifests, approved permissions, isolated WebView surfaces, and the versioned Extension API Bridge. Zero does not dynamically load third-party Rust code.
 
 ## Zero Paper
 
@@ -153,31 +158,24 @@ node scripts/validate-plugin-package.mjs examples/plugins/minimal-view-command-s
 
 ## Verification
 
-Recommended checks before pushing:
+The test scripts compile the TypeScript fixtures first, replacing the clean temporary output at `/private/tmp/zero-tests`, and then recursively discover every nested `*.test.mjs` file exactly once.
+
+Run a focused level while iterating:
 
 ```bash
-pnpm exec tsc src/brand/identity.ts --module ES2020 --moduleResolution bundler --target ES2022 --rootDir src --outDir /private/tmp/zero-brand-test --noEmit false --skipLibCheck
-node --test tests/brandIdentity.test.mjs
-pnpm exec tsc src/plugins/preferences/preferencesModel.ts src/plugins/preferences/preferencesStorage.ts src/plugins/types.ts src/brand/identity.ts --module ES2020 --moduleResolution bundler --target ES2020 --rootDir src --outDir /private/tmp/zero-preferences-test --noEmit false --skipLibCheck
-node --test tests/preferencesModel.test.mjs tests/preferencesStorage.test.mjs
-pnpm exec tsc src/plugins/preferences/i18n.ts src/plugins/preferences/preferencesModel.ts src/plugins/types.ts src/brand/identity.ts --module ES2020 --moduleResolution bundler --target ES2020 --rootDir src --outDir /private/tmp/zero-i18n-test --noEmit false --skipLibCheck
-node --test tests/i18n.test.mjs
-pnpm exec tsc src/plugins/screenshot/screenshotMeta.ts --module ES2020 --moduleResolution bundler --target ES2020 --outDir /private/tmp/zero-screenshot-test --noEmit false --skipLibCheck
-pnpm exec tsc src/plugins/screenshot/capture/captureReducer.ts src/plugins/screenshot/capture/captureHotkeys.ts src/plugins/screenshot/capture/captureSerialize.ts src/plugins/screenshot/capture/captureCanvas.ts src/plugins/screenshot/capture/captureSelectionModel.ts src/plugins/screenshot/capture/captureToolbarModel.ts --module ES2020 --moduleResolution bundler --target ES2022 --outDir /private/tmp/zero-capture-test --noEmit false --skipLibCheck
-node --test tests/screenshotMeta.test.mjs
-pnpm exec tsc src/plugins/pluginHost/contracts.ts src/plugins/pluginHost/validation.ts --module ES2020 --moduleResolution bundler --target ES2022 --rootDir src/plugins/pluginHost --outDir /private/tmp/zero-plugin-host-test --noEmit false --skipLibCheck
-pnpm exec tsc src/plugins/pluginHost/contracts.ts src/plugins/pluginHost/pluginHostServiceCore.ts --module ES2020 --moduleResolution bundler --target ES2022 --rootDir src/plugins/pluginHost --outDir /private/tmp/zero-plugin-host-service-test --noEmit false --skipLibCheck
-pnpm exec tsc src/plugins/pluginHost/contracts.ts src/plugins/pluginHost/pluginHostModel.ts src/plugins/pluginHost/pluginMarketModel.ts src/brand/identity.ts --module ES2020 --moduleResolution bundler --target ES2022 --rootDir src --outDir /private/tmp/zero-plugin-host-state-test --noEmit false --skipLibCheck
-pnpm exec tsc src/plugins/pluginHost/contracts.ts src/plugins/pluginHost/extensionBridge.ts src/plugins/quickLauncher/contracts.ts --module ES2020 --moduleResolution bundler --target ES2022 --rootDir src/plugins --outDir /private/tmp/zero-extension-runtime-test --noEmit false --skipLibCheck
-node --test tests/pluginHostService.test.mjs tests/pluginHostModel.test.mjs tests/pluginMarketModel.test.mjs tests/extensionRuntime.test.mjs
-pnpm exec tsc src/plugins/bingWallpaper/contracts.ts src/plugins/bingWallpaper/bingWallpaperModel.ts src/plugins/bingWallpaper/bingWallpaperController.ts src/plugins/bingWallpaper/bingWallpaperServiceCore.ts --module ES2020 --moduleResolution bundler --target ES2022 --outDir /private/tmp/zero-bing-wallpaper-test --noEmit false --skipLibCheck
-node --test tests/bingWallpaperModel.test.mjs tests/bingWallpaperController.test.mjs tests/bingWallpaperService.test.mjs
-pnpm exec tsc src/plugins/quickLauncher/contracts.ts src/plugins/quickLauncher/quickLauncherModel.ts src/plugins/quickLauncher/quickLauncherServiceCore.ts --module ES2020 --moduleResolution bundler --target ES2022 --rootDir src/plugins/quickLauncher --outDir /private/tmp/zero-quick-launcher-test --noEmit false --skipLibCheck
-pnpm exec tsc src/components/statusBarIconSources.ts src/plugins/pluginHost/contracts.ts --module ES2020 --moduleResolution bundler --target ES2022 --rootDir src --outDir /private/tmp/zero-status-bar-icons-test --noEmit false --skipLibCheck
-node --test tests/quickLauncherModel.test.mjs tests/quickLauncherService.test.mjs
-node --test tests/statusBarIconSources.test.mjs
+pnpm test:unit
+pnpm test:integration
+```
+
+Run the complete recursive suite and production checks before pushing:
+
+```bash
+pnpm test
 pnpm build
-cd src-tauri && cargo check && cargo test
+cd src-tauri
+cargo fmt --check
+cargo check
+cargo test
 cargo test --release --test quick_launcher_benchmark -- --ignored --nocapture
 ```
 

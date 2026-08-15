@@ -4,4 +4,4 @@ pub mod native_resources;
 pub mod quick_launcher;
 pub mod screenshot;
 pub mod status_bar;
-pub mod wallpaper;
+pub mod tool_windows;

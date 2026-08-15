@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { TranslationKey } from "../preferences/i18n";
+import type { TranslationKey } from "./i18n";
 
 export type ScreenshotAction = "copy" | "save";
 

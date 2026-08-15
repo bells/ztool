@@ -1,6 +1,6 @@
 import { CAFFEINE_DURATION_OPTIONS } from "./caffeineDuration";
 import { useCaffeinePlugin } from "./useCaffeinePlugin";
-import type { TranslationKey } from "../preferences/i18n";
+import type { TranslationKey } from "./i18n";
 
 interface CaffeinePanelProps {
   t: (key: TranslationKey) => string;

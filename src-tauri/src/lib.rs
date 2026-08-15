@@ -6,6 +6,7 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, ShortcutS
 use tauri_plugin_positioner::{Position, WindowExt};
 
 pub mod brand;
+mod bundled_plugins;
 pub mod commands;
 pub mod migration;
 pub mod plugins;
@@ -93,14 +94,12 @@ pub fn run() {
         eprintln!("Zero data migration: {diagnostic}");
     }
 
-    tauri::Builder::default()
-        .manage(services::caffeine::CaffeineState::new())
-        .manage(services::bing_wallpaper::BingWallpaperState::default())
+    let builder = bundled_plugins::manage_states(tauri::Builder::default());
+
+    builder
         .manage(plugins::market::PluginMarketState::default())
         .manage(plugins::registry::PluginRegistryState::default())
-        .manage(services::screenshot::ScreenshotSessionStore::default())
         .manage(services::status_bar::StatusBarState::default())
-        .manage(services::quick_launcher::QuickLauncherState::default())
         .plugin(tauri_plugin_autostart::Builder::new().build())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
@@ -134,28 +133,7 @@ pub fn run() {
 
             let _ = services::status_bar::refresh_status_bar(app.handle());
 
-            let launcher_state = app.state::<services::quick_launcher::QuickLauncherState>();
-            if let Err(error) = launcher_state.start_watcher(app.handle().clone()) {
-                launcher_state.add_diagnostic("launcher.watcher_unavailable", error);
-            }
-            let launcher_app = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                let refresh_app = launcher_app.clone();
-                let result = tauri::async_runtime::spawn_blocking(move || {
-                    refresh_app
-                        .state::<services::quick_launcher::QuickLauncherState>()
-                        .refresh(&services::quick_launcher::system_language())
-                })
-                .await;
-                if let Err(error) = result {
-                    launcher_app
-                        .state::<services::quick_launcher::QuickLauncherState>()
-                        .add_diagnostic(
-                            "launcher.refresh_join_failed",
-                            format!("Launcher startup refresh failed: {error}"),
-                        );
-                }
-            });
+            bundled_plugins::start_quick_launcher(app.handle());
 
             if quick_launcher_is_enabled(app.handle()) {
                 let _ = sync_quick_launcher_shortcut(app.handle(), true);
@@ -168,13 +146,6 @@ pub fn run() {
             commands::app::show_about_window,
             commands::app::show_main_window,
             commands::app::show_preferences_window,
-            commands::bing_wallpaper::get_bing_wallpaper_snapshot,
-            commands::bing_wallpaper::refresh_bing_wallpapers,
-            commands::bing_wallpaper::get_bing_wallpaper_preview,
-            commands::bing_wallpaper::save_bing_wallpaper_to_downloads,
-            commands::bing_wallpaper::apply_bing_wallpaper,
-            commands::caffeine::get_caffeine_state,
-            commands::caffeine::toggle_keep_awake,
             commands::plugins::refresh_plugin_market,
             commands::plugins::list_market_plugins,
             commands::plugins::list_plugins,
@@ -184,6 +155,17 @@ pub fn run() {
             commands::plugins::uninstall_plugin,
             commands::plugins::set_plugin_enabled,
             commands::plugins::restore_bundled_plugins,
+            commands::status_bar::get_status_bar_settings,
+            commands::status_bar::update_status_bar_settings,
+            commands::status_bar::get_status_bar_items,
+            commands::status_bar::run_status_bar_item_action,
+            commands::caffeine::get_caffeine_state,
+            commands::caffeine::toggle_keep_awake,
+            commands::bing_wallpaper::get_bing_wallpaper_snapshot,
+            commands::bing_wallpaper::refresh_bing_wallpapers,
+            commands::bing_wallpaper::get_bing_wallpaper_preview,
+            commands::bing_wallpaper::save_bing_wallpaper_to_downloads,
+            commands::bing_wallpaper::apply_bing_wallpaper,
             commands::quick_launcher::get_quick_launcher_snapshot,
             commands::quick_launcher::refresh_quick_launcher_index,
             commands::quick_launcher::search_quick_launcher,
@@ -191,10 +173,6 @@ pub fn run() {
             commands::quick_launcher::activate_quick_launcher_item,
             commands::quick_launcher::show_quick_launcher_window,
             commands::quick_launcher::hide_quick_launcher_window,
-            commands::status_bar::get_status_bar_settings,
-            commands::status_bar::update_status_bar_settings,
-            commands::status_bar::get_status_bar_items,
-            commands::status_bar::run_status_bar_item_action,
             commands::screenshot::get_screenshot_capabilities,
             commands::screenshot::start_screenshot,
             commands::screenshot::init_screenshot_session,

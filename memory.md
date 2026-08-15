@@ -1,4 +1,4 @@
-# ZTool Memory
+# Zero Memory
 
 Last updated: 2026-06-27
 
@@ -6,12 +6,12 @@ This file is a compact project memory for future maintainers and Codex runs. Tre
 
 ## Project Snapshot
 
-- `ztool` is a tray-first desktop utility collection, not a SaaS-style web app.
+- `zero` is a tray-first desktop utility collection, not a SaaS-style web app.
 - Current stack: Tauri 2, Rust 2021, React 19, TypeScript, Vite, pnpm.
 - Package manager is `pnpm@10.33.0`; main npm scripts are `pnpm dev`, `pnpm build`, and `pnpm tauri ...`.
 - Current product surface is a compact undecorated tray window plus extra Tauri windows for screenshot workflows.
-- Bundled plugins are registered as `ztool.screenshot` and `ztool.caffeine`; preferences/about remain protected host surfaces.
-- The plugin MVP is Git-based: plugin authors publish `.zplugin` ZIP packages through GitHub Releases, and ZTool reads a hosted static `market.json` instead of using a server-backed marketplace.
+- Bundled plugins are registered as `zero.snap`, `zero.awake`, `zero.paper`, and `zero.launch`; preferences/about remain protected host surfaces.
+- The plugin MVP is Git-based: plugin authors publish `.zplugin` ZIP packages through GitHub Releases, and Zero reads a hosted static `market.json` instead of using a server-backed marketplace.
 
 ## Current Architecture
 
@@ -19,10 +19,11 @@ This file is a compact project memory for future maintainers and Codex runs. Tre
   - `main` renders `MainApp`.
   - `capture` renders the screenshot editor `CaptureApp`.
   - `pin-*` renders `PinApp`.
-- `src/App.tsx` renders plugin navigation from the Rust-backed plugin registry via `src/plugins/pluginHost/usePluginHost.ts`; screenshot/caffeine still render through bundled adapters.
-- `src/plugins/pluginHost/` owns the TypeScript side of the plugin host: IPC contracts, market/registry service wrappers, market and lifecycle models, bundled manifest definitions, extension isolation policy, and bridge permission checks.
-- `src/plugins/types.ts` now treats plugin ids as dynamic strings. Bundled ids are `ztool.screenshot` and `ztool.caffeine`; legacy `screenshot`/`caffeine` visibility keys are migrated by preferences normalization.
-- `src/plugins/preferences/` owns local preferences:
+- `src/core/pluginHost/` owns host contracts, market/registry services, extension isolation, Bridge permission checks, and generic extension UI.
+- `src/core/preferences/` owns local preferences, About, storage, and host localization; `src/core/pluginHost/pluginTypes.ts` owns dynamic plugin presentation types.
+- Each bundled plugin under `src/plugins/{caffeine,bingWallpaper,quickLauncher,screenshot}` owns one typed descriptor, local translations, surfaces, and domain code. `src/appShell/bundledPluginModules.ts` is the only frontend composition registry.
+- Bundled native commands/state are explicitly composed at build time in `src-tauri/src/bundled_plugins.rs`; third-party `.zplugin` packages remain runtime-only and cannot load native Rust.
+- Local preferences:
   - storage key: `ztool.preferences.v1`
   - launch-at-login uses `@tauri-apps/plugin-autostart`
   - language options are `system`, `zh-CN`, and `en-US`
@@ -62,21 +63,23 @@ This file is a compact project memory for future maintainers and Codex runs. Tre
 
 ## Verification Commands
 
-Use focused helper tests for fast screenshot iterations:
+Use a focused test level while iterating:
 
 ```bash
-pnpm exec tsc src/plugins/screenshot/capture/captureReducer.ts src/plugins/screenshot/capture/captureHotkeys.ts src/plugins/screenshot/capture/captureSerialize.ts src/plugins/screenshot/capture/captureCanvas.ts --module ES2020 --moduleResolution bundler --target ES2022 --outDir /private/tmp/ztool-capture-test --noEmit false --skipLibCheck
-node --test tests/captureReducer.test.mjs tests/captureHotkeys.test.mjs tests/captureSerialize.test.mjs tests/captureCanvas.test.mjs
+pnpm test:unit
+pnpm test:integration
 ```
 
 Other useful checks:
 
 ```bash
 node scripts/validate-plugin-package.mjs examples/plugins/minimal-view-command-setting
-node --test tests/pluginHostService.test.mjs tests/pluginHostModel.test.mjs tests/pluginMarketModel.test.mjs tests/extensionRuntime.test.mjs tests/bundledPlugins.test.mjs
-node --test tests/*.mjs
+pnpm test
 pnpm build
-cd src-tauri && cargo check && cargo test
+cd src-tauri
+cargo fmt --check
+cargo check
+cargo test
 git diff --check
 ```
 

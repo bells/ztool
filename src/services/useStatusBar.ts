@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { PluginRecord } from "../plugins/pluginHost/contracts";
+import type { PluginRecord } from "../core/pluginHost/contracts";
 import {
   applyStatusBarSettingsUpdate,
   createStatusBarUiState,

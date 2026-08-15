@@ -1,4 +1,4 @@
-import type { StatusBarIconId } from "../plugins/pluginHost/contracts";
+import type { StatusBarIconId } from "../core/pluginHost/contracts";
 
 export const STATUS_BAR_ICON_FILES = {
   zero: "zero.svg",
