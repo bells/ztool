@@ -1,6 +1,7 @@
 export type CaptureTool =
   | "select"
   | "rectangle"
+  | "ellipse"
   | "arrow"
   | "pen"
   | "text"
@@ -20,6 +21,14 @@ interface BaseAnnotation {
 
 export interface RectangleAnnotation extends BaseAnnotation {
   type: "rectangle";
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface EllipseAnnotation extends BaseAnnotation {
+  type: "ellipse";
   x: number;
   y: number;
   width: number;
@@ -64,6 +73,7 @@ export interface PinAnnotation extends BaseAnnotation {
 
 export type AnnotationObject =
   | RectangleAnnotation
+  | EllipseAnnotation
   | ArrowAnnotation
   | PenAnnotation
   | TextAnnotation

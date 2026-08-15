@@ -24,6 +24,7 @@ export function normalizeRect(from: Point, to: Point): Bounds {
 export function annotationBounds(annotation: AnnotationObject): Bounds | null {
   switch (annotation.type) {
     case "rectangle":
+    case "ellipse":
     case "mosaic":
     case "pin":
       return {
@@ -62,12 +63,14 @@ export function annotationBounds(annotation: AnnotationObject): Bounds | null {
       };
     }
     case "text": {
-      const width = Math.max(24, Math.round(annotation.text.length * annotation.fontSize * 0.56));
+      const lines = annotation.text.split(/\r?\n/);
+      const longestLine = Math.max(...lines.map((line) => line.length), 1);
+      const width = Math.max(24, Math.round(longestLine * annotation.fontSize * 0.56));
       return {
         x: annotation.x,
         y: annotation.y - annotation.fontSize,
         width,
-        height: annotation.fontSize * 1.35,
+        height: lines.length * annotation.fontSize * 1.35,
       };
     }
     default:
@@ -258,6 +261,24 @@ export function drawAnnotations(
         ctx.restore();
         break;
 
+      case "ellipse":
+        ctx.save();
+        ctx.lineWidth = annotation.strokeWidth;
+        ctx.strokeStyle = annotation.color;
+        ctx.beginPath();
+        ctx.ellipse(
+          annotation.x + annotation.width / 2,
+          annotation.y + annotation.height / 2,
+          Math.max(0.5, annotation.width / 2),
+          Math.max(0.5, annotation.height / 2),
+          0,
+          0,
+          Math.PI * 2,
+        );
+        ctx.stroke();
+        ctx.restore();
+        break;
+
       case "arrow":
         drawArrow(ctx, annotation);
         break;
@@ -271,7 +292,9 @@ export function drawAnnotations(
         ctx.fillStyle = annotation.color;
         ctx.font = `${annotation.fontSize}px "Avenir Next", "PingFang SC", sans-serif`;
         ctx.textBaseline = "alphabetic";
-        ctx.fillText(annotation.text, annotation.x, annotation.y);
+        annotation.text.split(/\r?\n/).forEach((line, index) => {
+          ctx.fillText(line, annotation.x, annotation.y + index * annotation.fontSize * 1.35);
+        });
         ctx.restore();
         break;
 

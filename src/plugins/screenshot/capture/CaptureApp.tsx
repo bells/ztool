@@ -1,21 +1,38 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
+  useMemo,
   useReducer,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import {
+  Check,
+  Circle,
+  Download,
+  Grid3X3,
+  MousePointer2,
+  MoveUpRight,
+  Pencil,
+  Pin,
+  Redo2,
+  Square,
+  Trash2,
+  Type,
+  Undo2,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 import type { Bounds } from "./captureCanvas";
 import {
   drawAnnotations,
-  hitTestAnnotation,
   isAnnotationLargeEnough,
   normalizeRect,
 } from "./captureCanvas";
 import {
-  canvasToPngDataUrl,
   cropCanvasToPngDataUrl,
   loadImageFromBase64,
   renderFinalCanvas,
@@ -23,10 +40,26 @@ import {
 import { resolveCaptureHotkey } from "./captureHotkeys";
 import { captureReducer, createId, initialHistoryState } from "./captureReducer";
 import {
+  createFullImageSelection,
+  imageBoundsToViewportBounds,
+  isPointInBounds,
+  resolveSelectPointerTarget,
+  resolveSelectionDrag,
+  viewportPointToImagePoint,
+  type Size,
+} from "./captureSelectionModel";
+import {
   buildCommitScreenshotPayload,
   buildPinScreenshotPayload,
 } from "./captureSerialize";
+import {
+  resolveCaptureToolbarPosition,
+  type CaptureToolbarPosition,
+} from "./captureToolbarModel";
 import type { AnnotationObject, CaptureSession, CaptureTool, Point } from "./captureTypes";
+import { createTranslator, resolveLanguage, type TranslationKey } from "../../preferences/i18n";
+import { normalizePreferences } from "../../preferences/preferencesModel";
+import { readStoredPreferences } from "../../preferences/preferencesStorage";
 
 type DraftAnnotation = AnnotationObject | null;
 
@@ -38,15 +71,26 @@ interface TextDraft {
   value: string;
 }
 
-const tools: Array<{ tool: CaptureTool; label: string }> = [
-  { tool: "select", label: "Select" },
-  { tool: "rectangle", label: "Rect" },
-  { tool: "arrow", label: "Arrow" },
-  { tool: "pen", label: "Pen" },
-  { tool: "text", label: "Text" },
-  { tool: "mosaic", label: "Mosaic" },
-  { tool: "pin", label: "Pin" },
+interface CaptureToolDescriptor {
+  tool: CaptureTool;
+  labelKey: TranslationKey;
+  Icon: LucideIcon;
+}
+
+const tools: CaptureToolDescriptor[] = [
+  { tool: "select", labelKey: "screenshot.toolbar.select", Icon: MousePointer2 },
+  { tool: "rectangle", labelKey: "screenshot.toolbar.rectangle", Icon: Square },
+  { tool: "ellipse", labelKey: "screenshot.toolbar.ellipse", Icon: Circle },
+  { tool: "arrow", labelKey: "screenshot.toolbar.arrow", Icon: MoveUpRight },
+  { tool: "pen", labelKey: "screenshot.toolbar.pen", Icon: Pencil },
+  { tool: "text", labelKey: "screenshot.toolbar.text", Icon: Type },
+  { tool: "mosaic", labelKey: "screenshot.toolbar.mosaic", Icon: Grid3X3 },
+  { tool: "pin", labelKey: "screenshot.toolbar.pin", Icon: Pin },
 ];
+
+const TEXT_INPUT_WIDTH = 220;
+const TEXT_INPUT_HEIGHT = 96;
+const TEXT_FONT_SIZE = 24;
 
 function toImageSrc(imageBase64: string): string {
   return imageBase64.startsWith("data:")
@@ -55,31 +99,107 @@ function toImageSrc(imageBase64: string): string {
 }
 
 export function CaptureApp() {
+  const preferences = normalizePreferences(readStoredPreferences(window.localStorage), []);
+  const t = createTranslator(resolveLanguage(preferences.language, navigator.language));
   const [session, setSession] = useState<CaptureSession | null>(null);
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [baseImage, setBaseImage] = useState<HTMLImageElement | null>(null);
-  const [tool, setTool] = useState<CaptureTool>("rectangle");
+  const [tool, setTool] = useState<CaptureTool>("select");
+  const [selection, setSelection] = useState<Bounds | null>(null);
+  const [selectionDraft, setSelectionDraft] = useState<Bounds | null>(null);
+  const [viewportSize, setViewportSize] = useState<Size>(() => ({
+    width: window.innerWidth,
+    height: window.innerHeight,
+  }));
+  const [toolbarSize, setToolbarSize] = useState<Size | null>(null);
   const [history, dispatch] = useReducer(captureReducer, initialHistoryState);
   const [draft, setDraft] = useState<DraftAnnotation>(null);
   const [textDraft, setTextDraft] = useState<TextDraft | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isCommitting, setIsCommitting] = useState(false);
   const dragStartRef = useRef<Point | null>(null);
+  const selectionDragStartRef = useRef<Point | null>(null);
+  const selectionBeforeDragRef = useRef<Bounds | null>(null);
   const draftIdRef = useRef<string | null>(null);
   const draftRef = useRef<DraftAnnotation>(null);
+  const textDraftRef = useRef<TextDraft | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
   const overlayRef = useRef<HTMLCanvasElement | null>(null);
+  const textInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const toolbarRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     invoke<CaptureSession>("init_screenshot_session", {})
       .then(async (payload) => {
         const src = toImageSrc(payload.image_base64);
         setSession(payload);
+        setSelection(createFullImageSelection({ width: payload.width, height: payload.height }));
         setImageSrc(src);
         setBaseImage(await loadImageFromBase64(src));
       })
       .catch((err) => setError(String(err)));
   }, []);
+
+  useLayoutEffect(() => {
+    const input = textInputRef.current;
+    if (!input) {
+      return;
+    }
+
+    const focusFrame = requestAnimationFrame(() => {
+      input.focus({ preventScroll: true });
+      input.setSelectionRange(input.value.length, input.value.length);
+    });
+    return () => cancelAnimationFrame(focusFrame);
+  }, [textDraft?.screenX, textDraft?.screenY]);
+
+  useLayoutEffect(() => {
+    const toolbar = toolbarRef.current;
+    if (!toolbar) {
+      return;
+    }
+
+    const updateToolbarSize = () => {
+      const rect = toolbar.getBoundingClientRect();
+      const next = { width: rect.width, height: rect.height };
+      setToolbarSize((current) =>
+        current?.width === next.width && current.height === next.height ? current : next,
+      );
+    };
+    const updateViewportSize = () => {
+      setViewportSize({ width: window.innerWidth, height: window.innerHeight });
+    };
+
+    const observer = new ResizeObserver(updateToolbarSize);
+    observer.observe(toolbar);
+    window.addEventListener("resize", updateViewportSize);
+    updateToolbarSize();
+    updateViewportSize();
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", updateViewportSize);
+    };
+  }, []);
+
+  const activeSelection = selectionDraft ?? selection;
+  const selectionViewportBounds = useMemo(() => {
+    if (!session || !activeSelection) {
+      return null;
+    }
+    return imageBoundsToViewportBounds(
+      activeSelection,
+      { width: session.width, height: session.height },
+      viewportSize,
+    );
+  }, [activeSelection, session, viewportSize]);
+
+  const toolbarPosition: CaptureToolbarPosition | null = useMemo(() => {
+    if (!selectionViewportBounds || !toolbarSize) {
+      return null;
+    }
+    return resolveCaptureToolbarPosition(selectionViewportBounds, toolbarSize, viewportSize);
+  }, [selectionViewportBounds, toolbarSize, viewportSize]);
 
   useEffect(() => {
     if (!session || !overlayRef.current) {
@@ -108,19 +228,11 @@ export function CaptureApp() {
       }
 
       const rect = imageRef.current.getBoundingClientRect();
-      const scale = Math.min(rect.width / session.width, rect.height / session.height);
-      const renderedWidth = session.width * scale;
-      const renderedHeight = session.height * scale;
-      const offsetX = rect.left + (rect.width - renderedWidth) / 2;
-      const offsetY = rect.top + (rect.height - renderedHeight) / 2;
-      const x = (event.clientX - offsetX) / scale;
-      const y = (event.clientY - offsetY) / scale;
-
-      if (x < 0 || y < 0 || x > session.width || y > session.height) {
-        return null;
-      }
-
-      return { x, y };
+      return viewportPointToImagePoint(
+        { x: event.clientX - rect.left, y: event.clientY - rect.top },
+        { width: session.width, height: session.height },
+        { width: rect.width, height: rect.height },
+      );
     },
     [session],
   );
@@ -128,6 +240,11 @@ export function CaptureApp() {
   const updateDraft = useCallback((nextDraft: DraftAnnotation) => {
     draftRef.current = nextDraft;
     setDraft(nextDraft);
+  }, []);
+
+  const updateTextDraft = useCallback((nextDraft: TextDraft | null) => {
+    textDraftRef.current = nextDraft;
+    setTextDraft(nextDraft);
   }, []);
 
   const renderCurrentFinalCanvas = useCallback((): HTMLCanvasElement => {
@@ -161,14 +278,17 @@ export function CaptureApp() {
 
   const commit = useCallback(
     async (action: "copy" | "save") => {
-      if (!session) {
+      if (!session || !selection) {
         return;
       }
 
       setIsCommitting(true);
       setError(null);
       try {
-        const pngBase64 = canvasToPngDataUrl(renderCurrentFinalCanvas());
+        const pngBase64 = cropCanvasToPngDataUrl(renderCurrentFinalCanvas(), selection);
+        if (!pngBase64) {
+          throw new Error("Screenshot selection is outside the captured image");
+        }
         await invoke(
           "commit_screenshot",
           buildCommitScreenshotPayload({
@@ -183,15 +303,18 @@ export function CaptureApp() {
         setIsCommitting(false);
       }
     },
-    [renderCurrentFinalCanvas, session],
+    [renderCurrentFinalCanvas, selection, session],
   );
 
   const cancel = useCallback(() => {
-    if (draft || textDraft) {
+    if (draft || textDraft || selectionDraft) {
       setDraft(null);
       draftRef.current = null;
-      setTextDraft(null);
+      updateTextDraft(null);
+      setSelectionDraft(null);
       dragStartRef.current = null;
+      selectionDragStartRef.current = null;
+      selectionBeforeDragRef.current = null;
       draftIdRef.current = null;
       return;
     }
@@ -203,7 +326,7 @@ export function CaptureApp() {
     invoke("cancel_screenshot_session", { sessionId: session.session_id }).catch((err) =>
       setError(String(err)),
     );
-  }, [draft, session, textDraft]);
+  }, [draft, selectionDraft, session, textDraft, updateTextDraft]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -265,6 +388,16 @@ export function CaptureApp() {
     }
 
     const bounds = normalizeRect(start, point);
+    if (tool === "ellipse") {
+      return {
+        id,
+        type: "ellipse",
+        ...bounds,
+        color: "#55f280",
+        strokeWidth: 4,
+      };
+    }
+
     if (tool === "mosaic") {
       return {
         id,
@@ -301,41 +434,73 @@ export function CaptureApp() {
       return;
     }
 
-    event.currentTarget.setPointerCapture(event.pointerId);
+    if (textDraftRef.current) {
+      event.preventDefault();
+      commitTextDraft();
+      return;
+    }
+
+    if (tool !== "select" && activeSelection && !isPointInBounds(point, activeSelection)) {
+      return;
+    }
+
     setError(null);
 
     if (tool === "select") {
-      const selected = hitTestAnnotation(history.annotations, point);
-      dispatch({ type: "select", id: selected?.id ?? null });
+      const target = resolveSelectPointerTarget(history.annotations, point);
+      if (target.kind === "annotation") {
+        dispatch({ type: "select", id: target.annotationId });
+        return;
+      }
+      if (!selection) {
+        return;
+      }
+      event.currentTarget.setPointerCapture(event.pointerId);
+      dispatch({ type: "select", id: null });
+      selectionDragStartRef.current = point;
+      selectionBeforeDragRef.current = selection;
+      setSelectionDraft(null);
       return;
     }
 
     if (tool === "text") {
-      const inputWidth = 176;
-      const inputHeight = 42;
-      setTextDraft({
+      updateTextDraft({
         x: point.x,
         y: point.y,
-        screenX: Math.min(event.clientX, Math.max(0, window.innerWidth - inputWidth)),
-        screenY: Math.min(event.clientY, Math.max(0, window.innerHeight - inputHeight)),
+        screenX: Math.min(event.clientX, Math.max(0, window.innerWidth - TEXT_INPUT_WIDTH)),
+        screenY: Math.min(event.clientY, Math.max(0, window.innerHeight - TEXT_INPUT_HEIGHT)),
         value: "",
       });
       return;
     }
 
+    event.currentTarget.setPointerCapture(event.pointerId);
     dragStartRef.current = point;
     draftIdRef.current = createId(tool);
     updateDraft(createDraft(point, point));
   };
 
   const handlePointerMove = (event: ReactPointerEvent<HTMLCanvasElement>) => {
-    const start = dragStartRef.current;
-    if (!start) {
+    const point = pointerToImagePoint(event);
+    if (!point) {
       return;
     }
 
-    const point = pointerToImagePoint(event);
-    if (!point) {
+    const selectionStart = selectionDragStartRef.current;
+    const previousSelection = selectionBeforeDragRef.current;
+    if (selectionStart && previousSelection && session) {
+      const nextSelection = resolveSelectionDrag(
+        previousSelection,
+        selectionStart,
+        point,
+        { width: session.width, height: session.height },
+      );
+      setSelectionDraft(nextSelection === previousSelection ? null : nextSelection);
+      return;
+    }
+
+    const start = dragStartRef.current;
+    if (!start) {
       return;
     }
 
@@ -343,8 +508,29 @@ export function CaptureApp() {
   };
 
   const handlePointerUp = (event: ReactPointerEvent<HTMLCanvasElement>) => {
-    const start = dragStartRef.current;
     const point = pointerToImagePoint(event);
+    const selectionStart = selectionDragStartRef.current;
+    const previousSelection = selectionBeforeDragRef.current;
+    if (selectionStart && previousSelection && session) {
+      const nextSelection = point
+        ? resolveSelectionDrag(
+            previousSelection,
+            selectionStart,
+            point,
+            { width: session.width, height: session.height },
+          )
+        : previousSelection;
+      setSelection(nextSelection);
+      setSelectionDraft(null);
+      selectionDragStartRef.current = null;
+      selectionBeforeDragRef.current = null;
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+      return;
+    }
+
+    const start = dragStartRef.current;
     const currentDraft = start && point ? createDraft(start, point) : draftRef.current;
     dragStartRef.current = null;
     draftIdRef.current = null;
@@ -368,8 +554,14 @@ export function CaptureApp() {
   };
 
   function commitTextDraft() {
-    if (!textDraft || textDraft.value.trim().length === 0) {
-      setTextDraft(null);
+    const currentDraft = textDraftRef.current;
+    if (!currentDraft) {
+      return;
+    }
+    updateTextDraft(null);
+
+    const text = currentDraft.value;
+    if (text.trim().length === 0) {
       return;
     }
 
@@ -378,15 +570,14 @@ export function CaptureApp() {
       annotation: {
         id: createId("text"),
         type: "text",
-        x: textDraft.x,
-        y: textDraft.y,
-        text: textDraft.value.trim(),
-        fontSize: 24,
+        x: currentDraft.x,
+        y: currentDraft.y + TEXT_FONT_SIZE,
+        text,
+        fontSize: TEXT_FONT_SIZE,
         color: "#55f280",
         strokeWidth: 2,
       },
     });
-    setTextDraft(null);
   }
 
   return (
@@ -401,73 +592,156 @@ export function CaptureApp() {
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
       />
+      {activeSelection && selectionViewportBounds ? (
+        <div
+          className={selectionDraft ? "capture-selection-frame dragging" : "capture-selection-frame"}
+          style={{
+            left: selectionViewportBounds.x,
+            top: selectionViewportBounds.y,
+            width: selectionViewportBounds.width,
+            height: selectionViewportBounds.height,
+          }}
+          aria-hidden="true"
+        >
+          <span className="capture-selection-size">
+            {Math.round(activeSelection.width)} × {Math.round(activeSelection.height)}
+          </span>
+          {[
+            "top-left",
+            "top",
+            "top-right",
+            "right",
+            "bottom-right",
+            "bottom",
+            "bottom-left",
+            "left",
+          ].map((position) => (
+            <span className={`capture-selection-handle ${position}`} key={position} />
+          ))}
+        </div>
+      ) : null}
       {textDraft ? (
-        <input
+        <textarea
+          ref={textInputRef}
           className="capture-text-input"
           style={{ left: textDraft.screenX, top: textDraft.screenY }}
           value={textDraft.value}
-          autoFocus
-          onChange={(event) => setTextDraft({ ...textDraft, value: event.target.value })}
+          aria-label={t("screenshot.toolbar.text")}
+          onChange={(event) => updateTextDraft({ ...textDraft, value: event.target.value })}
           onBlur={commitTextDraft}
           onKeyDown={(event) => {
             if (event.key === "Escape") {
               event.preventDefault();
-              setTextDraft(null);
-              return;
-            }
-            if (event.key === "Enter") {
-              event.preventDefault();
-              event.currentTarget.blur();
+              updateTextDraft(null);
             }
           }}
         />
       ) : null}
       {error ? <p className="capture-error">{error}</p> : null}
-      <nav className="capture-toolbar-live" aria-label="Capture tools">
-        {tools.map((entry) => (
+      <nav
+        ref={toolbarRef}
+        className="capture-toolbar-live"
+        aria-label={t("screenshot.toolbar.label")}
+        data-placement={toolbarPosition?.placement}
+        data-ready={toolbarPosition ? "true" : "false"}
+        style={{ left: toolbarPosition?.left ?? 0, top: toolbarPosition?.top ?? 0 }}
+      >
+        <span
+          className="capture-tool-group"
+          role="group"
+          aria-label={t("screenshot.toolbar.tools")}
+        >
+          {tools.map(({ tool: entryTool, labelKey, Icon }) => {
+            const label = t(labelKey);
+            const selected = entryTool === tool;
+            return (
+              <button
+                type="button"
+                className={selected ? "capture-tool-live selected" : "capture-tool-live"}
+                key={entryTool}
+                title={label}
+                aria-label={label}
+                aria-pressed={selected}
+                onClick={() => setTool(entryTool)}
+              >
+                <Icon aria-hidden="true" />
+              </button>
+            );
+          })}
+        </span>
+        <span className="capture-divider-live" aria-hidden="true" />
+        <span
+          className="capture-tool-group"
+          role="group"
+          aria-label={t("screenshot.toolbar.history")}
+        >
           <button
             type="button"
-            className={entry.tool === tool ? "capture-tool-live selected" : "capture-tool-live"}
-            key={entry.tool}
-            onClick={() => setTool(entry.tool)}
+            className="capture-tool-live"
+            title={t("screenshot.toolbar.undo")}
+            aria-label={t("screenshot.toolbar.undo")}
+            disabled={history.undoStack.length === 0}
+            onClick={() => dispatch({ type: "undo" })}
           >
-            {entry.label}
+            <Undo2 aria-hidden="true" />
           </button>
-        ))}
-        <span className="capture-divider-live" />
-        <button type="button" className="capture-tool-live" onClick={() => dispatch({ type: "undo" })}>
-          Undo
-        </button>
-        <button type="button" className="capture-tool-live" onClick={() => dispatch({ type: "redo" })}>
-          Redo
-        </button>
-        <button
-          type="button"
-          className="capture-tool-live danger"
-          onClick={() => dispatch({ type: "removeSelected" })}
+          <button
+            type="button"
+            className="capture-tool-live"
+            title={t("screenshot.toolbar.redo")}
+            aria-label={t("screenshot.toolbar.redo")}
+            disabled={history.redoStack.length === 0}
+            onClick={() => dispatch({ type: "redo" })}
+          >
+            <Redo2 aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            className="capture-tool-live danger"
+            title={t("screenshot.toolbar.delete")}
+            aria-label={t("screenshot.toolbar.delete")}
+            disabled={!history.selectedId}
+            onClick={() => dispatch({ type: "removeSelected" })}
+          >
+            <Trash2 aria-hidden="true" />
+          </button>
+        </span>
+        <span className="capture-divider-live" aria-hidden="true" />
+        <span
+          className="capture-tool-group"
+          role="group"
+          aria-label={t("screenshot.toolbar.finish")}
         >
-          Del
-        </button>
-        <span className="capture-divider-live" />
-        <button type="button" className="capture-tool-live danger" onClick={cancel}>
-          Esc
-        </button>
-        <button
-          type="button"
-          className="capture-tool-live"
-          disabled={isCommitting}
-          onClick={() => commit("save")}
-        >
-          Save
-        </button>
-        <button
-          type="button"
-          className="capture-tool-live confirm"
-          disabled={isCommitting}
-          onClick={() => commit("copy")}
-        >
-          Copy
-        </button>
+          <button
+            type="button"
+            className="capture-tool-live danger"
+            title={t("screenshot.toolbar.cancel")}
+            aria-label={t("screenshot.toolbar.cancel")}
+            onClick={cancel}
+          >
+            <X aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            className="capture-tool-live"
+            title={t("screenshot.toolbar.save")}
+            aria-label={t("screenshot.toolbar.save")}
+            disabled={isCommitting || !selection}
+            onClick={() => commit("save")}
+          >
+            <Download aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            className="capture-tool-live confirm"
+            title={t("screenshot.toolbar.copy")}
+            aria-label={t("screenshot.toolbar.copy")}
+            disabled={isCommitting || !selection}
+            onClick={() => commit("copy")}
+          >
+            <Check aria-hidden="true" />
+          </button>
+        </span>
       </nav>
     </main>
   );

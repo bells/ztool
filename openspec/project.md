@@ -199,8 +199,8 @@ Use focused checks while iterating:
 
 For screenshot capture helpers:
 
-    pnpm exec tsc src/plugins/screenshot/capture/captureReducer.ts src/plugins/screenshot/capture/captureHotkeys.ts src/plugins/screenshot/capture/captureSerialize.ts src/plugins/screenshot/capture/captureCanvas.ts --module ES2020 --moduleResolution bundler --target ES2022 --outDir /private/tmp/zero-capture-test --noEmit false --skipLibCheck
-    node --test tests/captureReducer.test.mjs tests/captureHotkeys.test.mjs tests/captureSerialize.test.mjs tests/captureCanvas.test.mjs
+    pnpm exec tsc src/plugins/screenshot/capture/captureReducer.ts src/plugins/screenshot/capture/captureHotkeys.ts src/plugins/screenshot/capture/captureSerialize.ts src/plugins/screenshot/capture/captureCanvas.ts src/plugins/screenshot/capture/captureSelectionModel.ts src/plugins/screenshot/capture/captureToolbarModel.ts --module ES2020 --moduleResolution bundler --target ES2022 --outDir /private/tmp/zero-capture-test --noEmit false --skipLibCheck
+    node --test tests/captureReducer.test.mjs tests/captureHotkeys.test.mjs tests/captureSerialize.test.mjs tests/captureCanvas.test.mjs tests/captureSelectionModel.test.mjs tests/captureToolbarModel.test.mjs tests/captureToolbarSource.test.mjs
 
 Before considering implementation complete, run the relevant subset plus:
 

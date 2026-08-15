@@ -9,6 +9,12 @@ use std::{
 };
 
 use base64::Engine;
+#[cfg(target_os = "macos")]
+use objc::{
+    class, msg_send,
+    runtime::{Object, BOOL, YES},
+    sel, sel_impl,
+};
 use serde::{Deserialize, Serialize};
 use tauri::{Manager, WebviewUrl};
 
@@ -457,22 +463,36 @@ fn open_capture_window(app: &tauri::AppHandle) -> Result<(), String> {
         let _ = existing.close();
     }
 
+    let monitor = app
+        .primary_monitor()
+        .map_err(|e| format!("读取主显示器失败: {e}"))?
+        .ok_or_else(|| "未找到可用于截图的主显示器".to_string())?;
+    let monitor_position = *monitor.position();
+    let monitor_size = *monitor.size();
+
     let capture_window =
         tauri::WebviewWindowBuilder::new(app, CAPTURE_WINDOW_LABEL, WebviewUrl::App("".into()))
-            .title("Zero Snap")
-            .fullscreen(true)
             .decorations(false)
             .resizable(false)
             .always_on_top(true)
             .skip_taskbar(true)
             .transparent(false)
             .shadow(false)
-            .focused(true)
+            .visible(false)
+            .focused(false)
             .build()
             .map_err(|e| format!("打开截图编辑窗口失败: {e}"))?;
 
-    let _ = capture_window.show();
-    let _ = capture_window.set_focus();
+    let prepare_result = capture_window
+        .set_position(monitor_position)
+        .and_then(|_| capture_window.set_size(monitor_size))
+        .and_then(|_| capture_window.show())
+        .and_then(|_| capture_window.set_focus());
+
+    if let Err(err) = prepare_result {
+        let _ = capture_window.close();
+        return Err(format!("显示截图编辑窗口失败: {err}"));
+    }
 
     Ok(())
 }
@@ -491,27 +511,37 @@ fn platform_name() -> &'static str {
 
 #[cfg(target_os = "macos")]
 fn copy_png_to_clipboard(bytes: &[u8]) -> Result<(), String> {
-    let temp_path =
-        std::env::temp_dir().join(format!("zero-snap-clipboard-{}.png", create_session_id()));
-    std::fs::write(&temp_path, bytes).map_err(|e| format!("写入临时图片失败: {e}"))?;
+    unsafe {
+        let pool: *mut Object = msg_send![class!(NSAutoreleasePool), new];
+        let pasteboard: *mut Object = msg_send![class!(NSPasteboard), generalPasteboard];
+        let result = copy_png_to_pasteboard(bytes, pasteboard);
+        let _: () = msg_send![pool, drain];
+        result
+    }
+}
 
-    let script = format!(
-        "set the clipboard to (read (POSIX file \"{}\") as PNG picture)",
-        temp_path.display()
-    );
+#[cfg(target_os = "macos")]
+unsafe fn copy_png_to_pasteboard(bytes: &[u8], pasteboard: *mut Object) -> Result<(), String> {
+    if pasteboard.is_null() {
+        return Err("复制到剪贴板失败：系统剪贴板不可用".into());
+    }
 
-    let status = std::process::Command::new("osascript")
-        .arg("-e")
-        .arg(script)
-        .status()
-        .map_err(|e| format!("复制到剪贴板失败: {e}"))?;
+    let data: *mut Object =
+        msg_send![class!(NSData), dataWithBytes:bytes.as_ptr() length:bytes.len()];
+    if data.is_null() {
+        return Err("复制到剪贴板失败：无法创建 PNG 数据".into());
+    }
 
-    let _ = std::fs::remove_file(&temp_path);
-
-    if status.success() {
+    let png_type: *mut Object = msg_send![
+        class!(NSString),
+        stringWithUTF8String:b"public.png\0".as_ptr()
+    ];
+    let _: isize = msg_send![pasteboard, clearContents];
+    let copied: BOOL = msg_send![pasteboard, setData:data forType:png_type];
+    if copied == YES {
         Ok(())
     } else {
-        Err("复制到剪贴板失败".into())
+        Err("复制到剪贴板失败：系统拒绝 PNG 数据".into())
     }
 }
 
@@ -595,5 +625,32 @@ mod tests {
         assert!(first.starts_with("pin-"));
         assert!(second.starts_with("pin-"));
         assert_ne!(first, second);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn native_png_clipboard_round_trips_on_private_pasteboard() {
+        unsafe {
+            let pool: *mut Object = msg_send![class!(NSAutoreleasePool), new];
+            let pasteboard: *mut Object = msg_send![class!(NSPasteboard), pasteboardWithUniqueName];
+            let png = b"\x89PNG\r\n\x1a\nclipboard-test";
+
+            copy_png_to_pasteboard(png, pasteboard)
+                .expect("native pasteboard write should succeed");
+
+            let png_type: *mut Object = msg_send![
+                class!(NSString),
+                stringWithUTF8String:b"public.png\0".as_ptr()
+            ];
+            let data: *mut Object = msg_send![pasteboard, dataForType:png_type];
+            assert!(!data.is_null());
+            let data_bytes: *const u8 = msg_send![data, bytes];
+            let data_length: usize = msg_send![data, length];
+            let copied = std::slice::from_raw_parts(data_bytes, data_length);
+            assert_eq!(copied, png);
+
+            let _: () = msg_send![pasteboard, releaseGlobally];
+            let _: () = msg_send![pool, drain];
+        }
     }
 }

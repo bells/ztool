@@ -48,3 +48,31 @@ test("Bing wallpaper metadata actions and states are translated", () => {
     assert.notEqual(en(key), key);
   }
 });
+
+test("Zero Snap icon toolbar labels are localized", () => {
+  const zh = createTranslator("zh-CN");
+  const en = createTranslator("en-US");
+
+  for (const key of [
+    "screenshot.toolbar.label",
+    "screenshot.toolbar.select",
+    "screenshot.toolbar.rectangle",
+    "screenshot.toolbar.ellipse",
+    "screenshot.toolbar.arrow",
+    "screenshot.toolbar.pen",
+    "screenshot.toolbar.text",
+    "screenshot.toolbar.mosaic",
+    "screenshot.toolbar.pin",
+    "screenshot.toolbar.undo",
+    "screenshot.toolbar.redo",
+    "screenshot.toolbar.delete",
+    "screenshot.toolbar.cancel",
+    "screenshot.toolbar.save",
+    "screenshot.toolbar.copy",
+  ]) {
+    assert.notEqual(zh(key), key);
+    assert.notEqual(en(key), key);
+  }
+  assert.equal(zh("screenshot.toolbar.select"), "选择截图区域");
+  assert.equal(en("screenshot.toolbar.copy"), "Copy screenshot");
+});
