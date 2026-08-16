@@ -5,7 +5,7 @@ use std::os::windows::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
-use windows::core::{Interface, PCWSTR};
+use windows::core::{ComInterface, PCWSTR};
 use windows::Win32::Foundation::{CloseHandle, BOOL, HWND, LPARAM};
 use windows::Win32::Graphics::Gdi::{
     CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GetDC, ReleaseDC, SelectObject,
@@ -271,7 +271,7 @@ unsafe fn icon_to_png(
             biHeight: -SIZE,
             biPlanes: 1,
             biBitCount: 32,
-            biCompression: BI_RGB,
+            biCompression: BI_RGB.0,
             ..Default::default()
         },
         ..Default::default()
