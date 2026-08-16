@@ -14,6 +14,7 @@ import {
   readStoredPreferences,
   writeCanonicalPreferences,
 } from "./preferencesStorage";
+import { updateLaunchAtLoginPreference } from "./preferencesActions";
 
 export function usePreferences(pluginIds: PluginId[]) {
   const pluginIdsKey = pluginIds.join("\u0000");
@@ -54,32 +55,37 @@ export function usePreferences(pluginIds: PluginId[]) {
   const setLaunchAtLogin = useCallback(async (enabled: boolean) => {
     setIsAutostartBusy(true);
     try {
-      if (enabled) {
-        await enable();
-      } else {
-        await disable();
-      }
-      setPreferences((current) => ({
-        ...current,
-        launchAtLogin: enabled,
-      }));
+      const next = await updateLaunchAtLoginPreference(preferences, enabled, {
+        enable,
+        disable,
+      });
+      setPreferences(next);
       setMessageKey(enabled ? "prefs.message.autostartOn" : "prefs.message.autostartOff");
       setMessageDetail(null);
     } catch (error) {
       setMessageKey("prefs.message.autostartWriteError");
       setMessageDetail(String(error));
+      throw error;
     } finally {
       setIsAutostartBusy(false);
     }
-  }, []);
+  }, [preferences]);
 
   const setToolVisible = useCallback(
     (pluginId: PluginId, visible: boolean) => {
+      if (
+        !visible &&
+        preferences.visibleTools[pluginId] &&
+        visiblePluginIds.length <= 1
+      ) {
+        return false;
+      }
       setPreferences((current) => setToolVisibility(current, pluginId, visible, pluginIds));
       setMessageKey("prefs.message.toolsSaved");
       setMessageDetail(null);
+      return true;
     },
-    [pluginIds],
+    [pluginIds, preferences.visibleTools, visiblePluginIds.length],
   );
 
   const setLanguage = useCallback((language: LanguagePreference) => {

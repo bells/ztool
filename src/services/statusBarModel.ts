@@ -72,6 +72,8 @@ export const DEFAULT_STATUS_BAR_SETTINGS: StatusBarSettingsSnapshot = {
   visiblePluginItems: {},
 };
 
+export const STATUS_BAR_SETTINGS_UPDATED_EVENT = "status-bar-settings-updated";
+
 const PRIMARY_STATUS_BAR_ITEM: StatusBarItemSnapshot = {
   id: "zero.primary",
   pluginName: null,
@@ -135,8 +137,11 @@ export function resolveStatusBarItems({
 
 export function createStatusBarPreview(
   items: StatusBarItemSnapshot[],
+  pluginItemsCollapsed = false,
 ): StatusBarItemSnapshot[] {
-  return items;
+  return pluginItemsCollapsed
+    ? items.filter((item) => item.pluginName === null)
+    : items;
 }
 
 export function getStatusBarFallbackItems(

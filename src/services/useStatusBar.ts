@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import type { PluginRecord } from "../core/pluginHost/contracts";
 import {
   applyStatusBarSettingsUpdate,
@@ -8,6 +9,7 @@ import {
 import { statusBarService } from "./statusBar";
 import {
   DEFAULT_STATUS_BAR_SETTINGS,
+  STATUS_BAR_SETTINGS_UPDATED_EVENT,
   type StatusBarItemSnapshot,
   type StatusBarSettingsSnapshot,
   type UpdateStatusBarSettingsInput,
@@ -83,6 +85,49 @@ export function useStatusBar(
     };
   }, [recordsKey, service]);
 
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | null = null;
+
+    listen<StatusBarSettingsSnapshot>(STATUS_BAR_SETTINGS_UPDATED_EVENT, (event) => {
+      if (cancelled) {
+        return;
+      }
+
+      setSettings(event.payload);
+      service
+        .getItems()
+        .then((nextItems) => {
+          if (!cancelled) {
+            setItems(nextItems);
+            setError(null);
+          }
+        })
+        .catch((loadError) => {
+          if (!cancelled) {
+            setError(formatStatusBarError(loadError));
+          }
+        });
+    })
+      .then((unsubscribe) => {
+        if (cancelled) {
+          unsubscribe();
+        } else {
+          unlisten = unsubscribe;
+        }
+      })
+      .catch((listenError) => {
+        if (!cancelled) {
+          setError(formatStatusBarError(listenError));
+        }
+      });
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [service]);
+
   const updateSettings = useCallback(
     async (input: UpdateStatusBarSettingsInput) => {
       const previousSettings = settings;
@@ -149,6 +194,8 @@ export function useStatusBar(
     setEnabled: (enabled: boolean) => updateSettings({ enabled }),
     setShowPluginItemsOnLaunch: (showPluginItemsOnLaunch: boolean) =>
       updateSettings({ showPluginItemsOnLaunch }),
+    setPluginItemsCollapsed: (pluginItemsCollapsed: boolean) =>
+      updateSettings({ pluginItemsCollapsed }),
     setPluginItemVisible: (pluginName: string, visible: boolean) =>
       updateSettings(statusBarPluginVisibilityInput(pluginName, visible)),
   };

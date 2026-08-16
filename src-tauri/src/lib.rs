@@ -12,7 +12,7 @@ pub mod migration;
 pub mod plugins;
 pub mod services;
 
-const SCREENSHOT_SHORTCUT: &str = "CommandOrControl+Shift+A";
+pub const SCREENSHOT_SHORTCUT: &str = "CommandOrControl+Shift+A";
 pub const QUICK_LAUNCHER_SHORTCUT: &str = "CommandOrControl+Shift+Space";
 const TRAY_WINDOW_LABEL: &str = "tray";
 
@@ -25,15 +25,19 @@ fn is_quick_launcher_shortcut(modifiers: Modifiers, key: Code) -> bool {
     modifiers == (command_or_control | Modifiers::SHIFT) && key == Code::Space
 }
 
-fn quick_launcher_is_enabled(app: &tauri::AppHandle) -> bool {
+fn plugin_is_enabled(app: &tauri::AppHandle, plugin_name: &str) -> bool {
     app.state::<plugins::registry::PluginRegistryState>()
         .with_registry(|registry| {
             Ok(registry
                 .records()
                 .iter()
-                .any(|record| record.name == brand::ZERO_LAUNCH_PLUGIN_ID && record.enabled))
+                .any(|record| record.name == plugin_name && record.enabled))
         })
         .unwrap_or(false)
+}
+
+fn quick_launcher_is_enabled(app: &tauri::AppHandle) -> bool {
+    plugin_is_enabled(app, brand::ZERO_LAUNCH_PLUGIN_ID)
 }
 
 pub fn sync_quick_launcher_shortcut(app: &tauri::AppHandle, enabled: bool) -> Result<(), String> {
@@ -114,7 +118,7 @@ pub fn run() {
                             let _ =
                                 commands::quick_launcher::show_quick_launcher_window(app.clone());
                         }
-                    } else {
+                    } else if plugin_is_enabled(app, brand::ZERO_SNAP_PLUGIN_ID) {
                         let _ = services::screenshot::start_screenshot_session(
                             app.clone(),
                             "copy".into(),
@@ -159,6 +163,7 @@ pub fn run() {
             commands::status_bar::update_status_bar_settings,
             commands::status_bar::get_status_bar_items,
             commands::status_bar::run_status_bar_item_action,
+            commands::shortcuts::get_global_shortcut_snapshots,
             commands::caffeine::get_caffeine_state,
             commands::caffeine::toggle_keep_awake,
             commands::bing_wallpaper::get_bing_wallpaper_snapshot,

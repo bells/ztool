@@ -153,3 +153,47 @@ test("creates preference, preview, fallback, and error state for the status bar 
   assert.equal(uiState.messageKey, "statusBar.message.error");
   assert.equal(uiState.messageDetail, "Cannot save status bar settings");
 });
+
+test("collapsed status bar settings keep only the primary item in the preview", () => {
+  const records = [
+    pluginRecord("zero.snap", true, { statusBarItems: [screenshotStatusItem] }),
+  ];
+  const items = [
+    {
+      id: "zero.primary",
+      pluginName: null,
+      title: "Zero",
+      icon: "zero",
+      baseIcon: "zero",
+      action: { type: "toggle-tray" },
+      order: 0,
+      nativeVisible: true,
+    },
+    {
+      id: "zero.snap.status",
+      pluginName: "zero.snap",
+      title: "Zero Snap",
+      icon: "screenshot",
+      baseIcon: "screenshot",
+      action: { type: "start-screenshot" },
+      order: 20,
+      nativeVisible: true,
+    },
+  ];
+  const uiState = createStatusBarUiState({
+    records,
+    settings: {
+      enabled: true,
+      showPluginItemsOnLaunch: true,
+      pluginItemsCollapsed: true,
+      visiblePluginItems: { "zero.snap": true },
+    },
+    items,
+    isLoading: false,
+    isBusy: false,
+    error: null,
+  });
+
+  assert.deepEqual(uiState.previewItems.map((item) => item.id), ["zero.primary"]);
+  assert.deepEqual(uiState.preferenceItems.map((item) => item.id), ["zero.snap.status"]);
+});

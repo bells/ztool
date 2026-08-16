@@ -29,6 +29,7 @@ const MACOS_STATUS_ITEM_CELL_SIZE: u32 = 22;
 pub const PRIMARY_STATUS_ITEM_COLLAPSE_MENU_ID: &str = "zero.status-bar.toggle-tool-items";
 pub const PRIMARY_STATUS_ITEM_QUIT_MENU_ID: &str = "zero.status-bar.quit";
 pub const TOOL_STATUS_ITEM_QUIT_MENU_ID_PREFIX: &str = "zero.status-bar.tool.quit:";
+pub const STATUS_BAR_SETTINGS_UPDATED_EVENT: &str = "status-bar-settings-updated";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -411,17 +412,20 @@ pub fn update_status_bar_settings(
     ensure_status_bar_settings(app, &records)?;
     let settings = app.state::<StatusBarState>().update(&records, input)?;
     let _ = refresh_status_bar(app)?;
+    let _ = app.emit(STATUS_BAR_SETTINGS_UPDATED_EVENT, settings.clone());
     Ok(settings)
 }
 
 pub fn toggle_status_bar_plugin_items(app: &tauri::AppHandle) -> Result<StatusBarSettings, String> {
     let records = plugin_records(app)?;
     let current = ensure_status_bar_settings(app, &records)?;
-    perform_status_bar_plugin_items_toggle(
+    let settings = perform_status_bar_plugin_items_toggle(
         current.plugin_items_collapsed,
         |collapsed| apply_existing_status_bar_layout(app, collapsed),
         |input| app.state::<StatusBarState>().update(&records, input),
-    )
+    )?;
+    let _ = app.emit(STATUS_BAR_SETTINGS_UPDATED_EVENT, settings.clone());
+    Ok(settings)
 }
 
 fn perform_status_bar_plugin_items_toggle(

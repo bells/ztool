@@ -32,9 +32,9 @@ impl AppShellWindow {
             Self::Preferences => AppShellWindowOptions {
                 label: "preferences",
                 title: "Zero Preferences",
-                width: 520.0,
-                height: 620.0,
-                min_width: 460.0,
+                width: 840.0,
+                height: 640.0,
+                min_width: 420.0,
                 min_height: 500.0,
                 resizable: true,
             },
@@ -133,5 +133,15 @@ mod tests {
         assert!(main.height > about.height);
         assert!(main.resizable);
         assert!(!about.resizable);
+    }
+
+    #[test]
+    fn preferences_window_supports_regular_and_compact_layouts() {
+        let preferences = AppShellWindow::Preferences.options();
+
+        assert_eq!(preferences.label, "preferences");
+        assert_eq!((preferences.width, preferences.height), (840.0, 640.0));
+        assert!(preferences.min_width <= 420.0);
+        assert!(preferences.resizable);
     }
 }

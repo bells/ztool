@@ -69,7 +69,7 @@ export function createStatusBarUiState({
   error,
 }: StatusBarUiStateInput): StatusBarUiState {
   return {
-    previewItems: createStatusBarPreview(items),
+    previewItems: createStatusBarPreview(items, settings.pluginItemsCollapsed),
     preferenceItems: resolveStatusBarPreferenceItems({ records, settings }),
     fallbackItems: getStatusBarFallbackItems(items),
     messageKey: resolveStatusBarMessageKey({ isLoading, isBusy, error }),

@@ -9,13 +9,12 @@ import {
 } from "./appShell/bundledPluginModules";
 import { PRODUCT_NAME } from "./brand/identity";
 import { StatusBarGlyph } from "./components/StatusBarGlyph";
-import { PluginManagerPanel } from "./core/pluginHost/PluginManagerPanel";
 import { ExtensionSurface } from "./core/pluginHost/ExtensionSurface";
 import type { PluginRecord } from "./core/pluginHost/contracts";
 import type { PluginId, PluginMeta } from "./core/pluginHost/pluginTypes";
 import { usePluginHost } from "./core/pluginHost/usePluginHost";
 import { AboutPanel } from "./core/preferences/AboutPanel";
-import { PreferencesPanel } from "./core/preferences/PreferencesPanel";
+import { PreferencesSettingsCenter } from "./core/preferences/PreferencesSettingsCenter";
 import { createTranslator, resolveLanguage } from "./core/preferences/i18n";
 import type {
   ResolvedLanguage,
@@ -482,31 +481,16 @@ export function MainWindowApp() {
 export function PreferencesWindowApp() {
   const { pluginHost, preferences, t, localizedPlugins } = useLocalizedPlugins();
   const statusBar = useStatusBar(pluginHost.records);
-  const preferenceMessage = preferences.messageDetail
-    ? `${t(preferences.messageKey)}: ${preferences.messageDetail}`
-    : t(preferences.messageKey);
 
   return (
-    <main className="app-shell standalone-shell preferences-window-shell">
-      <header className="standalone-header" data-tauri-drag-region>
-        <div>
-          <h1>{t("prefs.title")}</h1>
-          <p>{t("shell.preferencesSubtitle")}</p>
-        </div>
-      </header>
-
-      <PreferencesPanel
-        plugins={localizedPlugins}
-        preferences={preferences.preferences}
-        isAutostartBusy={preferences.isAutostartBusy}
-        message={preferenceMessage}
+    <main className="preferences-window-shell">
+      <PreferencesSettingsCenter
+        localizedPlugins={localizedPlugins}
+        pluginHost={pluginHost}
+        preferences={preferences}
         statusBar={statusBar}
         t={t}
-        onLaunchAtLoginChange={preferences.setLaunchAtLogin}
-        onLanguageChange={preferences.setLanguage}
-        onToolVisibleChange={preferences.setToolVisible}
       />
-      <PluginManagerPanel pluginHost={pluginHost} />
     </main>
   );
 }
