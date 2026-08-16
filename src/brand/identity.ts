@@ -5,6 +5,7 @@ export const FIRST_PARTY_PLUGIN_IDS = {
   snap: "zero.snap",
   awake: "zero.awake",
   paper: "zero.paper",
+  file: "zero.file",
 } as const;
 
 export type FirstPartyPluginId =

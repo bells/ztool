@@ -138,6 +138,7 @@ pub fn run() {
             let _ = services::status_bar::refresh_status_bar(app.handle());
 
             bundled_plugins::start_quick_launcher(app.handle());
+            bundled_plugins::initialize_file_conversion(app.handle());
 
             if quick_launcher_is_enabled(app.handle()) {
                 let _ = sync_quick_launcher_shortcut(app.handle(), true);
@@ -166,6 +167,18 @@ pub fn run() {
             commands::shortcuts::get_global_shortcut_snapshots,
             commands::caffeine::get_caffeine_state,
             commands::caffeine::toggle_keep_awake,
+            commands::file::get_file_conversion_capabilities,
+            commands::file::choose_file_conversion_inputs,
+            commands::file::inspect_file_conversion_inputs,
+            commands::file::enqueue_file_conversions,
+            commands::file::list_file_conversion_jobs,
+            commands::file::start_file_conversion_queue,
+            commands::file::cancel_file_conversion_job,
+            commands::file::remove_file_conversion_job,
+            commands::file::retry_file_conversion_job,
+            commands::file::clear_completed_file_conversion_jobs,
+            commands::file::open_file_conversion_output,
+            commands::file::reveal_file_conversion_output,
             commands::bing_wallpaper::get_bing_wallpaper_snapshot,
             commands::bing_wallpaper::refresh_bing_wallpapers,
             commands::bing_wallpaper::get_bing_wallpaper_preview,
@@ -186,8 +199,17 @@ pub fn run() {
             commands::screenshot::pin_screenshot,
             commands::screenshot::init_pin_window,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if matches!(
+                event,
+                tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
+            ) {
+                app.state::<services::file::FileConversionState>()
+                    .shutdown_cleanup();
+            }
+        });
 }
 
 #[cfg(test)]

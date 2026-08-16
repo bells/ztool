@@ -1,0 +1,117 @@
+{
+  "schemaVersion": 1,
+  "generatedBy": "scripts/generate-file-conversion-fixtures.py",
+  "containsUserData": false,
+  "cases": [
+    {
+      "file": "rich-layout.docx",
+      "direction": "docxToPdf",
+      "expectedPreflight": "valid",
+      "coverage": [
+        "latin",
+        "cjk",
+        "fonts",
+        "headings",
+        "table",
+        "image",
+        "columns",
+        "header",
+        "footer",
+        "pageBreak"
+      ],
+      "sha256": "6450a799723ab62a73812ee7fab31e9e54f4bce3c6c084b5ca30c5b2bb552e38"
+    },
+    {
+      "file": "large-structured.docx",
+      "direction": "docxToPdf",
+      "expectedPreflight": "valid",
+      "coverage": [
+        "large",
+        "pagination",
+        "cjk",
+        "fonts"
+      ],
+      "sha256": "d770aa57fa101c665f25f2761a65a2a6ee9f1a0426ad6df0f4263a72c6cba323"
+    },
+    {
+      "file": "malformed.docx",
+      "direction": null,
+      "expectedPreflight": "invalidInput",
+      "coverage": [
+        "malformedContainer"
+      ],
+      "sha256": "ae00a703b0e8c0274433302acdf02d7fb4053731963140901aaf78874da77513"
+    },
+    {
+      "file": "~$office-lock.docx",
+      "direction": null,
+      "expectedPreflight": "invalidInput",
+      "coverage": [
+        "officeLockFile"
+      ],
+      "sha256": "f011272d133cb54824d91d7a3346bfe364023cfe231ee4fbeb426149b3452403"
+    },
+    {
+      "file": "rich-layout.pdf",
+      "direction": "pdfToDocx",
+      "expectedPreflight": "valid",
+      "coverage": [
+        "latin",
+        "cjk",
+        "table",
+        "image",
+        "columns",
+        "pageBreak"
+      ],
+      "sha256": "96a13affd7b645ae5a8eed00b7ecf6c1144b0d568f478ad6a404a62938a16879"
+    },
+    {
+      "file": "image-only-scan.pdf",
+      "direction": "pdfToDocx",
+      "expectedPreflight": "ocrRequired",
+      "coverage": [
+        "scanned",
+        "imageOnly"
+      ],
+      "sha256": "faef07a6e2ef1d50b6e695e3528f64754fb99c7c0578ce2a63714d38887d9f19"
+    },
+    {
+      "file": "encrypted.pdf",
+      "direction": "pdfToDocx",
+      "expectedPreflight": "passwordRequired",
+      "coverage": [
+        "encrypted"
+      ],
+      "sha256": "17b162eeb704072b2916d359cae25166c5b83be0f62925d563dcd8429d9b914d"
+    },
+    {
+      "file": "large-structured.pdf",
+      "direction": "pdfToDocx",
+      "expectedPreflight": "valid",
+      "coverage": [
+        "large",
+        "pagination",
+        "cjk"
+      ],
+      "sha256": "a012b50bbceebac7b19b1c310b7a7d136515e1f51893356a84f09a6c7fbaa6ac"
+    },
+    {
+      "file": "malformed.pdf",
+      "direction": null,
+      "expectedPreflight": "invalidInput",
+      "coverage": [
+        "malformedHeader"
+      ],
+      "sha256": "9ff9364f4cb3371403cb130153cd3ea7b8889b966b9589286f1ae8cafa0ce13a"
+    },
+    {
+      "file": "unsupported.txt",
+      "direction": null,
+      "expectedPreflight": "unsupportedFormat",
+      "coverage": [
+        "unsupportedExtension"
+      ],
+      "sha256": "f4466f2534b75d3a77b766a6da86ca286cbac06ab0a70cb56d3c90f3b74d840c"
+    }
+  ]
+}

@@ -7,6 +7,7 @@ const plugins = [
   ["caffeine", "zero.awake", "plugins/caffeine", "accent-caffeine"],
   ["bingWallpaper", "zero.paper", "plugins/bingWallpaper", "accent-bing-wallpaper"],
   ["quickLauncher", "zero.launch", "plugins/quickLauncher", "accent-quick-launcher"],
+  ["file", "zero.file", "plugins/file", "accent-file"],
 ];
 
 test("each bundled plugin owns its manifest presentation localization and renderer", () => {
@@ -46,4 +47,13 @@ test("plugin manifests keep host-mediated status bar contributions", () => {
   ]) {
     assert.match(combined, new RegExp(contribution.replaceAll(".", "\\.")));
   }
+});
+
+test("Zero File stays a trusted main-view plugin without extension permissions or a status item", () => {
+  const source = fs.readFileSync("src/plugins/file/plugin.tsx", "utf8");
+
+  assert.match(source, /permissions:\s*\[\]/);
+  assert.match(source, /platforms:\s*\["macos",\s*"windows"\]/);
+  assert.match(source, /views:\s*\[\{ id: "zero\.file\.main"/);
+  assert.doesNotMatch(source, /statusBarItems/);
 });

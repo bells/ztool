@@ -6279,6 +6279,7 @@ dependencies = [
  "futures-util",
  "fuzzy-matcher",
  "image",
+ "libc",
  "notify",
  "nucleo-matcher",
  "objc",

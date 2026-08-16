@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "approvedBundledEngines": [],
+  "approvedRuntimeDownloads": [],
+  "detectableUserInstalledProviders": [
+    {
+      "id": "libreOffice",
+      "directions": ["docxToPdf"],
+      "redistributed": false
+    },
+    {
+      "id": "microsoftWordMacos",
+      "directions": ["docxToPdf"],
+      "redistributed": false
+    },
+    {
+      "id": "microsoftWordWindows",
+      "directions": ["docxToPdf"],
+      "redistributed": false
+    }
+  ],
+  "rejectedProviders": [
+    {
+      "id": "pdf2docx",
+      "reason": "Failed the CJK, layout, OCR-result, diagnostics, and redistribution gates on 2026-08-16."
+    },
+    {
+      "id": "onlyOfficeDesktopEditors",
+      "reason": "No unattended conversion, fidelity, process, license, or package-size acceptance evidence."
+    }
+  ]
+}

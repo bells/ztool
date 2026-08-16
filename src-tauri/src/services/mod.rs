@@ -1,5 +1,6 @@
 pub mod bing_wallpaper;
 pub mod caffeine;
+pub mod file;
 pub mod global_shortcuts;
 pub mod native_resources;
 pub mod quick_launcher;

@@ -4,7 +4,8 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use zero_lib::plugins::contracts::{
-    InstallPluginPackageInput, PluginMarketEntry, PluginPermission, PluginRuntime, PluginSource,
+    InstallPluginPackageInput, PluginMarketEntry, PluginPermission, PluginPlatform, PluginRuntime,
+    PluginSource,
 };
 use zero_lib::plugins::registry::PluginRegistry;
 use zip::write::SimpleFileOptions;
@@ -82,7 +83,13 @@ fn first_load_seeds_bundled_plugins() {
 
     assert_eq!(
         names,
-        vec!["zero.snap", "zero.awake", "zero.paper", "zero.launch",]
+        vec![
+            "zero.snap",
+            "zero.awake",
+            "zero.paper",
+            "zero.launch",
+            "zero.file",
+        ]
     );
     assert!(registry.records().iter().all(|record| record.enabled));
 }
@@ -112,6 +119,11 @@ fn bundled_plugin_records_include_host_manifest_contributions() {
         .iter()
         .find(|record| record.name == "zero.launch")
         .expect("Zero Launch record");
+    let file = registry
+        .records()
+        .iter()
+        .find(|record| record.name == "zero.file")
+        .expect("Zero File record");
 
     assert_eq!(screenshot.manifest.runtime, Some(PluginRuntime::Webview));
     assert_eq!(screenshot.manifest.main, "plugins/screenshot");
@@ -161,6 +173,25 @@ fn bundled_plugin_records_include_host_manifest_contributions() {
             PluginPermission::SystemSettingsOpen,
         ]
     );
+    assert_eq!(file.author, "bells");
+    assert_eq!(file.version, "1.0.0");
+    assert_eq!(file.manifest.id.as_deref(), Some("zero.file"));
+    assert!(file.manifest.permissions.is_empty());
+    assert_eq!(
+        file.manifest.platforms,
+        Some(vec![PluginPlatform::Macos, PluginPlatform::Windows])
+    );
+    let file_contributions = file
+        .manifest
+        .contributes
+        .as_ref()
+        .expect("File contributions");
+    assert!(file_contributions
+        .views
+        .as_ref()
+        .is_some_and(|views| views.len() == 1 && views[0].id == "zero.file.main"));
+    assert!(file_contributions.commands.is_none());
+    assert!(file_contributions.status_bar_items.is_none());
 }
 
 #[test]
@@ -278,7 +309,7 @@ fn corrupt_registry_recovers_with_bundled_plugins() {
 
     let registry = PluginRegistry::load_or_seed(root).expect("registry should recover");
 
-    assert_eq!(registry.records().len(), 4);
+    assert_eq!(registry.records().len(), 5);
     assert!(registry
         .diagnostics()
         .iter()
@@ -334,7 +365,7 @@ fn install_validation_failure_leaves_registry_and_files_unchanged() {
         .expect_err("missing main asset should fail install");
 
     assert!(error.contains("package.main.missing"));
-    assert_eq!(registry.records().len(), 4);
+    assert_eq!(registry.records().len(), 5);
     assert!(!root.join("bad-tool").exists());
 }
 

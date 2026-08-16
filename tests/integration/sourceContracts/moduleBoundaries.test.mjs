@@ -7,7 +7,7 @@ const ROOT = process.cwd();
 const PLUGINS_ROOT = path.join(ROOT, "src/plugins");
 const CORE_ROOT = path.join(ROOT, "src/core");
 const COMPOSITION_FILE = path.join(ROOT, "src/appShell/bundledPluginModules.ts");
-const EXPECTED_PLUGINS = ["bingWallpaper", "caffeine", "quickLauncher", "screenshot"];
+const EXPECTED_PLUGINS = ["bingWallpaper", "caffeine", "file", "quickLauncher", "screenshot"];
 
 test("plugins directory contains only self-contained registered bundled plugins", () => {
   const pluginDirectories = fs.readdirSync(PLUGINS_ROOT, { withFileTypes: true })

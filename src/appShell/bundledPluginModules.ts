@@ -8,6 +8,7 @@ import { createBundledPluginRegistry } from "../core/pluginHost/pluginModuleRegi
 import type { ResolvedLanguage } from "../core/preferences/i18n";
 import { bingWallpaperPlugin } from "../plugins/bingWallpaper/plugin";
 import { caffeinePlugin } from "../plugins/caffeine/plugin";
+import { filePlugin } from "../plugins/file/plugin";
 import { quickLauncherPlugin } from "../plugins/quickLauncher/plugin";
 import { quickLauncherService } from "../plugins/quickLauncher/quickLauncherService";
 import { screenshotPlugin } from "../plugins/screenshot/plugin";
@@ -17,6 +18,7 @@ export const BUNDLED_PLUGIN_MODULES = [
   caffeinePlugin,
   bingWallpaperPlugin,
   quickLauncherPlugin,
+  filePlugin,
 ] as const satisfies readonly BundledPluginModule[];
 
 export const bundledPluginRegistry = createBundledPluginRegistry(

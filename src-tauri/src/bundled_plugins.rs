@@ -5,6 +5,7 @@ pub fn manage_states(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<taur
         .manage(crate::services::caffeine::CaffeineState::new())
         .manage(crate::services::bing_wallpaper::BingWallpaperState::default())
         .manage(crate::services::quick_launcher::QuickLauncherState::default())
+        .manage(crate::services::file::FileConversionState::default())
         .manage(crate::services::screenshot::ScreenshotSessionStore::default())
 }
 
@@ -32,4 +33,19 @@ pub fn start_quick_launcher(app: &tauri::AppHandle) {
                 );
         }
     });
+}
+
+pub fn initialize_file_conversion(app: &tauri::AppHandle) {
+    let result = app
+        .path()
+        .app_cache_dir()
+        .map_err(|_| "The Zero cache directory is unavailable.".to_string())
+        .and_then(|cache_root| {
+            app.state::<crate::services::file::FileConversionState>()
+                .initialize(cache_root.join("file-conversion"))
+                .map_err(|error| error.message)
+        });
+    if let Err(error) = result {
+        eprintln!("Zero File initialization: {error}");
+    }
 }

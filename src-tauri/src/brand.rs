@@ -6,6 +6,7 @@ pub const ZERO_LAUNCH_PLUGIN_ID: &str = "zero.launch";
 pub const ZERO_SNAP_PLUGIN_ID: &str = "zero.snap";
 pub const ZERO_AWAKE_PLUGIN_ID: &str = "zero.awake";
 pub const ZERO_PAPER_PLUGIN_ID: &str = "zero.paper";
+pub const ZERO_FILE_PLUGIN_ID: &str = "zero.file";
 
 const LEGACY_PLUGIN_IDS: [(&str, &str); 4] = [
     ("ztool.quick-launcher", ZERO_LAUNCH_PLUGIN_ID),
@@ -56,11 +57,13 @@ pub fn default_home() -> PathBuf {
 mod tests {
     use super::{
         canonical_first_party_contribution_id, canonical_first_party_plugin_id,
-        ZERO_AWAKE_PLUGIN_ID, ZERO_LAUNCH_PLUGIN_ID, ZERO_PAPER_PLUGIN_ID, ZERO_SNAP_PLUGIN_ID,
+        ZERO_AWAKE_PLUGIN_ID, ZERO_FILE_PLUGIN_ID, ZERO_LAUNCH_PLUGIN_ID, ZERO_PAPER_PLUGIN_ID,
+        ZERO_SNAP_PLUGIN_ID,
     };
 
     #[test]
     fn maps_only_known_legacy_first_party_ids() {
+        assert_eq!(ZERO_FILE_PLUGIN_ID, "zero.file");
         assert_eq!(
             canonical_first_party_plugin_id("ztool.quick-launcher"),
             ZERO_LAUNCH_PLUGIN_ID

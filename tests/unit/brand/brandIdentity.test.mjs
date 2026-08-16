@@ -14,6 +14,7 @@ test("defines the canonical Zero product and first-party plugin ids", () => {
     snap: "zero.snap",
     awake: "zero.awake",
     paper: "zero.paper",
+    file: "zero.file",
   });
 });
 

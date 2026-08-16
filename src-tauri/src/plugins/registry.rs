@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::brand::{
     canonical_data_root, canonical_first_party_contribution_id, canonical_first_party_plugin_id,
-    default_home, ZERO_AWAKE_PLUGIN_ID, ZERO_LAUNCH_PLUGIN_ID, ZERO_PAPER_PLUGIN_ID,
-    ZERO_SNAP_PLUGIN_ID,
+    default_home, ZERO_AWAKE_PLUGIN_ID, ZERO_FILE_PLUGIN_ID, ZERO_LAUNCH_PLUGIN_ID,
+    ZERO_PAPER_PLUGIN_ID, ZERO_SNAP_PLUGIN_ID,
 };
 
 use super::contracts::{
@@ -28,7 +28,7 @@ struct PluginRegistryDiskState {
     records: Vec<PluginRecord>,
 }
 
-const PLUGIN_REGISTRY_SCHEMA_VERSION: u16 = 4;
+const PLUGIN_REGISTRY_SCHEMA_VERSION: u16 = 5;
 
 pub struct PluginRegistry {
     root: PathBuf,
@@ -352,6 +352,7 @@ fn bundled_plugin_records() -> Vec<PluginRecord> {
         bundled_caffeine_record(),
         bundled_bing_wallpaper_record(),
         bundled_quick_launcher_record(),
+        bundled_file_record(),
     ]
 }
 
@@ -551,6 +552,32 @@ fn bundled_quick_launcher_record() -> PluginRecord {
                 order: Some(40),
                 visible_by_default: Some(true),
             }]),
+        }),
+    })
+}
+
+fn bundled_file_record() -> PluginRecord {
+    bundled_record(PluginManifest {
+        name: ZERO_FILE_PLUGIN_ID.into(),
+        version: "1.0.0".into(),
+        author: "bells".into(),
+        main: "plugins/file".into(),
+        permissions: Vec::new(),
+        id: Some(ZERO_FILE_PLUGIN_ID.into()),
+        display_name: Some("Zero File".into()),
+        description: Some("Convert PDF and Word files with detected local providers".into()),
+        engines: None,
+        platforms: Some(vec![PluginPlatform::Macos, PluginPlatform::Windows]),
+        runtime: Some(PluginRuntime::Webview),
+        contributes: Some(PluginContributions {
+            views: Some(vec![PluginContributionView {
+                id: "zero.file.main".into(),
+                title: "Zero File".into(),
+                surface: Some(PluginViewSurface::Main),
+            }]),
+            commands: None,
+            settings: None,
+            status_bar_items: None,
         }),
     })
 }

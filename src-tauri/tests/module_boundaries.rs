@@ -32,6 +32,7 @@ fn rust_composition_registers_each_bundled_plugin_state_and_handler_group() {
     for state in [
         "CaffeineState",
         "BingWallpaperState",
+        "FileConversionState",
         "QuickLauncherState",
         "ScreenshotSessionStore",
     ] {
@@ -41,6 +42,7 @@ fn rust_composition_registers_each_bundled_plugin_state_and_handler_group() {
     let lib = fs::read_to_string(manifest_path("src/lib.rs")).unwrap();
     for handler in [
         "commands::caffeine::get_caffeine_state",
+        "commands::file::get_file_conversion_capabilities",
         "commands::bing_wallpaper::get_bing_wallpaper_snapshot",
         "commands::quick_launcher::get_quick_launcher_snapshot",
         "commands::screenshot::get_screenshot_capabilities",
