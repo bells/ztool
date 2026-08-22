@@ -50,10 +50,14 @@ fn write_zplugin_package(
 }
 
 fn valid_manifest(name: &str) -> String {
+    valid_manifest_version(name, "0.1.0")
+}
+
+fn valid_manifest_version(name: &str, version: &str) -> String {
     format!(
         r#"{{
             "name": "{name}",
-            "version": "0.1.0",
+            "version": "{version}",
             "author": "watson",
             "main": "dist/index.html",
             "permissions": ["ui.message"]
@@ -397,6 +401,118 @@ fn duplicate_plugin_install_is_rejected_without_overwriting_existing_assets() {
         fs::read_to_string(installed_file).expect("installed file"),
         "first"
     );
+}
+
+#[test]
+fn plugin_update_atomically_switches_record_and_retains_one_rollback_version() {
+    let root = unique_registry_root();
+    let packages = root.join("packages");
+    let first = write_zplugin_package(
+        &packages,
+        "update-tool-0.1.0.zplugin",
+        &valid_manifest_version("update-tool", "0.1.0"),
+        &[("dist/index.html", "first")],
+    );
+    let second = write_zplugin_package(
+        &packages,
+        "update-tool-0.2.0.zplugin",
+        &valid_manifest_version("update-tool", "0.2.0"),
+        &[("dist/index.html", "second")],
+    );
+    let third = write_zplugin_package(
+        &packages,
+        "update-tool-0.3.0.zplugin",
+        &valid_manifest_version("update-tool", "0.3.0"),
+        &[("dist/index.html", "third")],
+    );
+    let mut registry = PluginRegistry::load_or_seed(root.clone()).expect("registry should load");
+    registry
+        .install_local_package(install_input(&first))
+        .expect("first version should install");
+    registry
+        .set_enabled("update-tool", false)
+        .expect("installed plugin should disable");
+    registry.save().expect("disabled state should persist");
+
+    let updated = registry
+        .install_local_package(InstallPluginPackageInput {
+            package_path: second.to_string_lossy().into_owned(),
+            approved_permissions: vec![PluginPermission::UiMessage],
+            enabled: Some(true),
+        })
+        .expect("new version should activate");
+
+    assert_eq!(updated.version, "0.2.0");
+    assert!(
+        !updated.enabled,
+        "updates preserve the user's enabled state"
+    );
+    assert!(root.join("update-tool").join("0.1.0").exists());
+    assert_eq!(
+        fs::read_to_string(root.join("update-tool/0.2.0/dist/index.html")).unwrap(),
+        "second"
+    );
+    let updated = registry
+        .install_local_package(install_input(&third))
+        .expect("third version should activate");
+    assert_eq!(updated.version, "0.3.0");
+    assert!(!root.join("update-tool/0.1.0").exists());
+    assert!(root.join("update-tool/0.2.0").exists());
+
+    let reloaded = PluginRegistry::load_or_seed(root).expect("updated registry should reload");
+    assert!(reloaded
+        .records()
+        .iter()
+        .any(|record| record.name == "update-tool"
+            && record.version == "0.3.0"
+            && !record.enabled));
+}
+
+#[test]
+fn forged_registry_engine_metadata_is_not_treated_as_trusted_install_evidence() {
+    let root = unique_registry_root();
+    let mut registry = PluginRegistry::load_or_seed(root.clone()).expect("registry should load");
+    let engine_root = root.join("zero.file/1.0.0/engine");
+    fs::create_dir_all(&engine_root).expect("engine root");
+    let mut disk: serde_json::Value = serde_json::from_str(
+        &serde_json::to_string(&serde_json::json!({
+            "schemaVersion": 5,
+            "records": registry.records(),
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let record = disk["records"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|record| record["name"] == "zero.file")
+        .unwrap();
+    record["source"] = serde_json::json!("local");
+    record["installedPath"] = serde_json::json!(root.join("zero.file/1.0.0"));
+    record["approvedPermissions"] = serde_json::json!(["document.convert"]);
+    record["manifest"]["permissions"] = serde_json::json!(["document.convert"]);
+    record["manifest"]["firstPartyEngine"] = serde_json::json!({
+        "protocolVersion": 1,
+        "packageVersion": "1.0.0",
+        "hostApiRange": "*",
+        "directions": ["pdfToDocx"],
+        "platformMinimums": [],
+        "assets": [{"path": "engine/index.html", "sha256": "00", "bytes": 1, "mediaType": "text/html"}],
+        "notices": ["engine/licenses/NOTICE"],
+        "signature": "test"
+    });
+    fs::write(
+        root.join("registry.json"),
+        serde_json::to_vec_pretty(&disk).unwrap(),
+    )
+    .unwrap();
+    registry = PluginRegistry::load_or_seed(root.clone()).expect("trusted test record should load");
+
+    let error = registry
+        .acquire_active_engine("zero.file")
+        .expect_err("unsigned registry metadata must not grant engine trust");
+    assert!(error.contains("integrity verification failed"));
 }
 
 #[test]

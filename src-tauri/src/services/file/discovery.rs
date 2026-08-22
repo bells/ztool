@@ -10,7 +10,7 @@ use std::time::{Duration, Instant, SystemTime};
 use super::contracts::{
     FileConversionDirection, FileConversionErrorCode,
     FileConversionProvider as FileConversionProviderSnapshot, FileConversionProviderAvailability,
-    FileConversionProviderId,
+    FileConversionProviderId, FileConversionProviderOrigin, FileConversionQualityProfile,
 };
 use super::provider::provider_error;
 
@@ -174,6 +174,11 @@ impl LibreOfficeDiscovery {
                         id: FileConversionProviderId::LibreOffice,
                         display_name: "LibreOffice".into(),
                         version: Some(version.to_string()),
+                        origin: FileConversionProviderOrigin::Compatibility,
+                        engine_version: None,
+                        package_version: None,
+                        platform_minimum: None,
+                        quality_profiles: vec![FileConversionQualityProfile::CompatibilityProvider],
                         directions: vec![FileConversionDirection::DocxToPdf],
                         availability: FileConversionProviderAvailability::Available,
                     }
@@ -372,6 +377,11 @@ fn unavailable_snapshot_with_version(
         id: FileConversionProviderId::LibreOffice,
         display_name: "LibreOffice".into(),
         version,
+        origin: FileConversionProviderOrigin::Compatibility,
+        engine_version: None,
+        package_version: None,
+        platform_minimum: None,
+        quality_profiles: vec![FileConversionQualityProfile::CompatibilityProvider],
         directions: vec![FileConversionDirection::DocxToPdf],
         availability: FileConversionProviderAvailability::Unavailable {
             error: provider_error(

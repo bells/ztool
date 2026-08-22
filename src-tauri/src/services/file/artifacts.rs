@@ -342,6 +342,7 @@ fn artifact_error(
 #[cfg(test)]
 mod tests {
     use std::io::Write;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use zip::write::SimpleFileOptions;
@@ -353,12 +354,15 @@ mod tests {
 
     impl TestRoot {
         fn new() -> Self {
+            static NEXT_ROOT: AtomicU64 = AtomicU64::new(1);
             let root = std::env::temp_dir().join(format!(
-                "zero-file-artifacts-{}",
+                "zero-file-artifacts-{}-{}-{}",
+                std::process::id(),
                 SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .expect("clock")
-                    .as_nanos()
+                    .as_nanos(),
+                NEXT_ROOT.fetch_add(1, Ordering::Relaxed),
             ));
             fs::create_dir_all(&root).unwrap();
             Self(root)

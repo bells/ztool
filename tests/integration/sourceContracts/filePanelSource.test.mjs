@@ -34,3 +34,22 @@ test("File keeps one responsive queue region with accessible and reduced-motion 
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
   assert.match(css, /\.main-window-shell \.file-job-actions button,[\s\S]*min-height: 44px/);
 });
+
+test("File built-in readiness, fidelity warnings, and keyboard flow use native accessible controls", () => {
+  assert.match(panel, /guidance\.providerOrigin === "builtIn"/);
+  assert.match(panel, /t\("provider\.offlineReady"\)/);
+  assert.match(panel, /qualityTranslationKey\(job\.state\.result\.qualityProfile\)/);
+  for (const profile of [
+    "editableReconstruction",
+    "layoutPreserving",
+    "webRenderedPdf",
+    "compatibilityProvider",
+  ]) {
+    assert.match(panel, new RegExp(`${profile}: "quality\\.`));
+  }
+  assert.equal((panel.match(/<button\b/g) ?? []).length > 0, true);
+  assert.equal((panel.match(/<button\b/g) ?? []).length, (panel.match(/type="button"/g) ?? []).length);
+  assert.match(panel, /disabled=\{!queueActions\.canStart/);
+  assert.match(panel, /role="alert"/);
+  assert.match(panel, /aria-live="polite"/);
+});

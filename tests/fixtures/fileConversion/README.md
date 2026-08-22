@@ -6,7 +6,8 @@ This directory contains generated, non-sensitive documents used to evaluate loca
 
 - `rich-layout.docx` and `rich-layout.pdf`: Latin and CJK editable text, explicit fonts, headings, a table, an image, columns, headers/footers, and page breaks.
 - `large-structured.docx` and `large-structured.pdf`: 24-page representative workloads with stable pagination and CJK text.
-- `image-only-scan.pdf`: one raster-only page with no PDF text layer; expected to require OCR.
+- `image-only-scan.pdf`: one raster-only page with no PDF text layer; expected to complete as a non-editable `layoutPreserving` DOCX without claiming OCR.
+- `expected.json` records `editableReconstruction`, `layoutPreserving`, and `webRenderedPdf` expectations. Rotation/overlap confidence signals are covered by synthetic engine unit cases because rotating this timestamped corpus would make its visual baseline less representative.
 - `encrypted.pdf`: one password-protected page; the fixture-only password is `zero-test`.
 - `malformed.docx`, `malformed.pdf`, `~$office-lock.docx`, and `unsupported.txt`: invalid-container, malformed-header, Office lock-file, and unsupported-extension cases.
 - `assets/OFL.txt`: the Noto Sans SC Open Font License notice. Each valid DOCX embeds a generated subset of the OFL font; no complete font binary is committed separately.

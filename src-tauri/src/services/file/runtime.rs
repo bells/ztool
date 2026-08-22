@@ -18,6 +18,7 @@ use super::contracts::{
     FileConversionErrorCode, FileConversionJobSnapshot, FileConversionJobState,
     FileConversionProgress, FileConversionResult, FileConversionStage,
 };
+use super::engine_bridge::FileEngineBridge;
 use super::output::reserve_output_path;
 use super::provider::{
     FileConversionCancellationToken, FileConversionProgressSink, FileConversionProviderRegistry,
@@ -41,14 +42,17 @@ struct RuntimeState {
 
 pub struct FileConversionState {
     runtime: Mutex<RuntimeState>,
-    providers: Arc<FileConversionProviderRegistry>,
+    providers: Mutex<Arc<FileConversionProviderRegistry>>,
 }
 
 impl Default for FileConversionState {
     fn default() -> Self {
         Self {
             runtime: Mutex::new(RuntimeState::default()),
-            providers: Arc::new(default_provider_registry()),
+            providers: Mutex::new(Arc::new(default_provider_registry(
+                None,
+                Arc::new(FileEngineBridge::default()),
+            ))),
         }
     }
 }
@@ -60,8 +64,33 @@ impl FileConversionState {
         Ok(())
     }
 
+    pub fn initialize_with_engine(
+        &self,
+        app: tauri::AppHandle,
+        bridge: Arc<FileEngineBridge>,
+        temp_root: PathBuf,
+    ) -> Result<(), FileConversionError> {
+        self.initialize(temp_root)?;
+        *self
+            .providers
+            .lock()
+            .map_err(|_| runtime_error("The File provider registry is unavailable.", true))? =
+            Arc::new(default_provider_registry(Some(app), bridge));
+        Ok(())
+    }
+
     pub fn capabilities(&self) -> FileConversionCapabilitySnapshot {
-        capability_snapshot(&self.providers, ProviderPlatform::current(), now_ms())
+        let providers = self
+            .providers
+            .lock()
+            .map(|providers| Arc::clone(&providers))
+            .unwrap_or_else(|_| {
+                Arc::new(default_provider_registry(
+                    None,
+                    Arc::new(FileEngineBridge::default()),
+                ))
+            });
+        capability_snapshot(&providers, ProviderPlatform::current(), now_ms())
     }
 
     pub fn inspect_paths(&self, source_paths: Vec<String>) -> Vec<FileConversionCandidate> {
@@ -340,10 +369,18 @@ async fn execute_active_job(
         return;
     }
 
-    let provider = match state
-        .providers
-        .select(record.snapshot.direction, ProviderPlatform::current())
-    {
+    let providers = match state.providers.lock() {
+        Ok(providers) => Arc::clone(&providers),
+        Err(_) => {
+            finish_with_error(
+                app,
+                &record.snapshot.id,
+                runtime_error("The File provider registry is unavailable.", true),
+            );
+            return;
+        }
+    };
+    let provider = match providers.select(record.snapshot.direction, ProviderPlatform::current()) {
         Ok(provider) => provider,
         Err(error) => {
             finish_with_error(app, &record.snapshot.id, error);
@@ -385,6 +422,7 @@ async fn execute_active_job(
         source_path: record.canonical_source.clone(),
         temp_directory: job_directory.clone(),
     };
+    let provider_id = provider.id();
     let provider_result = tauri::async_runtime::spawn_blocking(move || {
         provider.convert(&request, &progress_sink, &cancellation)
     })
@@ -407,6 +445,12 @@ async fn execute_active_job(
             output_name: record.snapshot.target_name.clone(),
             size_bytes: metadata.len(),
             completed_at_ms: now_ms(),
+            provider_id,
+            provider_origin: output.provider_origin,
+            engine_version: output.engine_version,
+            quality_profile: output.quality_profile,
+            warning_keys: output.warning_keys,
+            page_count: output.page_count,
         })
     });
     let _ = remove_job_temp_directory(&temp_root, &job_directory);

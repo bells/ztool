@@ -12,10 +12,12 @@ node_modules
 .pnpm-store/
 
 # Frontend build output
+build/
 dist
 dist-ssr
 coverage
 *.local
+public/file-engine/
 
 # Tauri / Rust build output
 src-tauri/target/

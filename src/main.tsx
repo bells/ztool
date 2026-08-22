@@ -11,6 +11,7 @@ import {
 import { resolveAppSurface } from "./appShell/appSurface";
 import { bundledPluginSurface } from "./appShell/bundledPluginModules";
 import type { BundledPluginSurface } from "./core/pluginHost/pluginModule";
+import { FileEngineApp } from "./plugins/file/engine/FileEngineApp";
 
 const label = getCurrentWindow().label;
 const surface = resolveAppSurface(label);
@@ -18,7 +19,9 @@ const pluginSurface = isBundledPluginSurface(surface)
   ? bundledPluginSurface(surface)
   : undefined;
 const RoutedApp =
-  pluginSurface ??
+  label === "zero-file-engine"
+    ? FileEngineApp
+    : pluginSurface ??
   (surface === "main"
         ? MainWindowApp
         : surface === "preferences"

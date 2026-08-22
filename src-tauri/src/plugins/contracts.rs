@@ -24,6 +24,8 @@ pub enum PluginPermission {
     SystemWindowFocus,
     #[serde(rename = "system.settings.open")]
     SystemSettingsOpen,
+    #[serde(rename = "document.convert")]
+    DocumentConvert,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -61,6 +63,42 @@ pub struct PluginEngines {
     pub ztool: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub api: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PluginDocumentDirection {
+    PdfToDocx,
+    DocxToPdf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginEngineAsset {
+    pub path: String,
+    pub sha256: String,
+    pub bytes: u64,
+    pub media_type: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginEnginePlatformMinimum {
+    pub platform: PluginPlatform,
+    pub version: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginFirstPartyEngine {
+    pub protocol_version: u16,
+    pub package_version: String,
+    pub host_api_range: String,
+    pub directions: Vec<PluginDocumentDirection>,
+    pub platform_minimums: Vec<PluginEnginePlatformMinimum>,
+    pub assets: Vec<PluginEngineAsset>,
+    pub notices: Vec<String>,
+    pub signature: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -161,7 +199,7 @@ pub struct PluginContributions {
     pub status_bar_items: Option<Vec<PluginContributionStatusBarItem>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum PluginPlatform {
     Macos,
@@ -184,6 +222,7 @@ pub struct PluginManifest {
     pub platforms: Option<Vec<PluginPlatform>>,
     pub runtime: Option<PluginRuntime>,
     pub contributes: Option<PluginContributions>,
+    pub first_party_engine: Option<PluginFirstPartyEngine>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

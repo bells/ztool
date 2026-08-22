@@ -139,6 +139,18 @@ def main() -> int:
         if actual != case["sha256"]:
             fail(f"{path.name}: SHA-256 mismatch; expected {case['sha256']}, got {actual}")
 
+    expected_profiles = {
+        "rich-layout.docx": "webRenderedPdf",
+        "large-structured.docx": "webRenderedPdf",
+        "rich-layout.pdf": "layoutPreserving",
+        "image-only-scan.pdf": "layoutPreserving",
+        "large-structured.pdf": "editableReconstruction",
+    }
+    for name, profile in expected_profiles.items():
+        case = next(item for item in cases if item["file"] == name)
+        if case.get("expectedQualityProfile") != profile:
+            fail(f"{name}: expected quality profile {profile}")
+
     rich_docx = next(case for case in cases if case["file"] == "rich-layout.docx")
     required_coverage = {
         "latin",
@@ -170,6 +182,9 @@ def main() -> int:
     scan_pdf, scan_text = extract_pdf_text(FIXTURES / "image-only-scan.pdf")
     if len(scan_pdf.pages) != 1 or scan_text.strip():
         fail("image-only-scan.pdf: expected one page with no text layer")
+    scan_case = next(case for case in cases if case["file"] == "image-only-scan.pdf")
+    if scan_case["expectedPreflight"] != "valid":
+        fail("image-only-scan.pdf: scans must use layoutPreserving rather than claim OCR")
 
     assert_encrypted_pdf(FIXTURES / "encrypted.pdf")
     assert_malformed_inputs()

@@ -153,6 +153,8 @@ export function normalizeFileConversionError(value: unknown): FileConversionErro
 
 function isProviderId(value: unknown): value is NonNullable<FileConversionError["providerId"]> {
   return (
+    value === "zeroFilePdfToDocx" ||
+    value === "zeroFileDocxToPdfMacos" ||
     value === "libreOffice" ||
     value === "microsoftWordMacos" ||
     value === "microsoftWordWindows"

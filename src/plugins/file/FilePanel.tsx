@@ -21,6 +21,7 @@ import type {
   FileConversionCandidate,
   FileConversionDirection,
   FileConversionJobSnapshot,
+  FileConversionQualityProfile,
 } from "./contracts";
 import {
   fileConversionJobStateKey,
@@ -255,8 +256,12 @@ function ProviderStrip({ controller, t }: { controller: FileConversionController
               <strong>{direction === "pdfToDocx" ? "PDF → DOCX" : "DOCX → PDF"}</strong>
               <small>
                 {guidance.available
-                  ? guidance.providerName ?? t("provider.available")
-                  : t("provider.unavailable")}
+                  ? `${guidance.providerName ?? t("provider.available")} · ${
+                      guidance.providerOrigin === "builtIn"
+                        ? t("provider.offlineReady")
+                        : t("provider.compatibility")
+                    }`
+                  : t("provider.repair")}
               </small>
             </span>
           </div>
@@ -391,7 +396,11 @@ function FileJobRow({ job, controller, t }: { job: FileConversionJobSnapshot; co
       <div className="file-job-details">
         <span><b>{t("file.provider")}</b>{summary.providerName ?? "—"}</span>
         <span><b>{t("file.output")}</b>{summary.outputName ?? summary.targetName}</span>
-        <span>{t("file.fidelityNote")}</span>
+        <span>
+          {job.state.status === "completed"
+            ? t(qualityTranslationKey(job.state.result.qualityProfile))
+            : t("file.fidelityNote")}
+        </span>
       </div>
 
       <div className="file-job-actions">
@@ -423,6 +432,16 @@ function FileJobRow({ job, controller, t }: { job: FileConversionJobSnapshot; co
       </div>
     </article>
   );
+}
+
+function qualityTranslationKey(profile: FileConversionQualityProfile): TranslationKey {
+  const keys: Record<FileConversionQualityProfile, TranslationKey> = {
+    editableReconstruction: "quality.editableReconstruction",
+    layoutPreserving: "quality.layoutPreserving",
+    webRenderedPdf: "quality.webRenderedPdf",
+    compatibilityProvider: "quality.compatibilityProvider",
+  };
+  return keys[profile];
 }
 
 function stateIconFor(job: FileConversionJobSnapshot, stateKey: string) {

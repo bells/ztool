@@ -8,7 +8,8 @@ use super::artifacts::validate_provider_output;
 use super::contracts::{
     FileConversionDirection, FileConversionError, FileConversionErrorCode, FileConversionProgress,
     FileConversionProvider as FileConversionProviderSnapshot, FileConversionProviderAvailability,
-    FileConversionProviderId, FileConversionStage,
+    FileConversionProviderId, FileConversionProviderOrigin, FileConversionQualityProfile,
+    FileConversionStage,
 };
 use super::discovery::LibreOfficeDiscovery;
 use super::errors::{classify_provider_failure, ProviderFailureKind};
@@ -172,6 +173,11 @@ impl FileConversionProvider for LibreOfficeProvider {
         validate_provider_output(&normalized_output, request.direction)?;
         Ok(ProviderConversionOutput {
             path: normalized_output,
+            provider_origin: FileConversionProviderOrigin::Compatibility,
+            engine_version: self.probe().version,
+            quality_profile: FileConversionQualityProfile::CompatibilityProvider,
+            warning_keys: vec!["file.quality.compatibilityProvider".into()],
+            page_count: None,
         })
     }
 }

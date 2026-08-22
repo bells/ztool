@@ -5,7 +5,7 @@ use std::sync::Arc;
 use super::contracts::{
     FileConversionDirection, FileConversionError, FileConversionErrorCode, FileConversionProgress,
     FileConversionProvider as FileConversionProviderSnapshot, FileConversionProviderAvailability,
-    FileConversionProviderId,
+    FileConversionProviderId, FileConversionProviderOrigin, FileConversionQualityProfile,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,6 +37,11 @@ pub struct ProviderConversionRequest {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProviderConversionOutput {
     pub path: PathBuf,
+    pub provider_origin: FileConversionProviderOrigin,
+    pub engine_version: Option<String>,
+    pub quality_profile: FileConversionQualityProfile,
+    pub warning_keys: Vec<String>,
+    pub page_count: Option<u32>,
 }
 
 pub trait FileConversionProgressSink: Send + Sync {
@@ -136,7 +141,14 @@ fn provider_priority(
     platform: ProviderPlatform,
 ) -> Vec<FileConversionProviderId> {
     match (direction, platform) {
+        (
+            FileConversionDirection::PdfToDocx,
+            ProviderPlatform::Macos | ProviderPlatform::Windows,
+        ) => {
+            vec![FileConversionProviderId::ZeroFilePdfToDocx]
+        }
         (FileConversionDirection::DocxToPdf, ProviderPlatform::Macos) => vec![
+            FileConversionProviderId::ZeroFileDocxToPdfMacos,
             FileConversionProviderId::LibreOffice,
             FileConversionProviderId::MicrosoftWordMacos,
         ],
@@ -220,6 +232,11 @@ mod tests {
                 id: self.id,
                 display_name: format!("Fake {:?}", self.id),
                 version: Some("1.0.0".into()),
+                origin: FileConversionProviderOrigin::Compatibility,
+                engine_version: Some("1.0.0".into()),
+                package_version: None,
+                platform_minimum: None,
+                quality_profiles: vec![FileConversionQualityProfile::CompatibilityProvider],
                 directions: self.directions.clone(),
                 availability: if self.available {
                     FileConversionProviderAvailability::Available
@@ -251,11 +268,11 @@ mod tests {
             match self.outcome {
                 FakeOutcome::Success => {
                     fs::write(&path, b"%PDF-1.7\nfixture").unwrap();
-                    Ok(ProviderConversionOutput { path })
+                    Ok(test_output(path))
                 }
                 FakeOutcome::InvalidOutput => {
                     fs::write(&path, b"invalid output").unwrap();
-                    Ok(ProviderConversionOutput { path })
+                    Ok(test_output(path))
                 }
                 FakeOutcome::Failure => Err(provider_error(
                     FileConversionErrorCode::ProviderFailed,
@@ -270,6 +287,17 @@ mod tests {
                     Some(self.id),
                 )),
             }
+        }
+    }
+
+    fn test_output(path: PathBuf) -> ProviderConversionOutput {
+        ProviderConversionOutput {
+            path,
+            provider_origin: FileConversionProviderOrigin::Compatibility,
+            engine_version: Some("1.0.0".into()),
+            quality_profile: FileConversionQualityProfile::CompatibilityProvider,
+            warning_keys: Vec::new(),
+            page_count: None,
         }
     }
 

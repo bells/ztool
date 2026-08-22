@@ -21,6 +21,7 @@ fn plugin_record(
         platforms: None,
         runtime: Some(runtime),
         contributes: None,
+        first_party_engine: None,
     };
 
     PluginRecord {

@@ -14,6 +14,7 @@ Zero is a tray-first desktop utility collection built with Tauri 2, React, and T
 - Language preference with system default, Chinese, and English.
 - About and Exit actions in a compact bottom system section.
 - MVP plugin host: GitHub Releases `.zplugin` packages, hosted `market.json`, local package validation/install, permission review, enable/disable/uninstall, and bundled restore.
+- Zero File with signed plugin-owned offline PDF-to-DOCX assets and macOS 11+ DOCX-to-PDF rendering; Python and office suites are not required for the built-in paths.
 
 ## Tech Stack
 
@@ -148,6 +149,7 @@ Developer docs:
 - [MVP protocol](docs/plugins/mvp-plugin-protocol.md)
 - [Developer guide](docs/plugins/developer-guide.md)
 - [GitHub Releases publishing guide](docs/plugins/publishing-github-releases.md)
+- [Zero File offline engine and release guide](docs/plugins/zero-file-offline-engines.md)
 - [Minimal example plugin](examples/plugins/minimal-view-command-setting)
 
 Validate an unpacked plugin directory:

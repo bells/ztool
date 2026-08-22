@@ -98,7 +98,8 @@ pub fn run() {
         eprintln!("Zero data migration: {diagnostic}");
     }
 
-    let builder = bundled_plugins::manage_states(tauri::Builder::default());
+    let builder =
+        plugins::engine_assets::register(bundled_plugins::manage_states(tauri::Builder::default()));
 
     builder
         .manage(plugins::market::PluginMarketState::default())
@@ -179,6 +180,12 @@ pub fn run() {
             commands::file::clear_completed_file_conversion_jobs,
             commands::file::open_file_conversion_output,
             commands::file::reveal_file_conversion_output,
+            services::file::engine_bridge::file_engine_ready,
+            services::file::engine_bridge::file_engine_read_input,
+            services::file::engine_bridge::file_engine_write_output,
+            services::file::engine_bridge::file_engine_progress,
+            services::file::engine_bridge::file_engine_complete,
+            services::file::engine_bridge::file_engine_print_rendered,
             commands::bing_wallpaper::get_bing_wallpaper_snapshot,
             commands::bing_wallpaper::refresh_bing_wallpapers,
             commands::bing_wallpaper::get_bing_wallpaper_preview,

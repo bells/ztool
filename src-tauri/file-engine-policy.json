@@ -1,32 +1,81 @@
 {
-  "schemaVersion": 1,
-  "approvedBundledEngines": [],
+  "schemaVersion": 2,
+  "approvedEnginePackages": [],
   "approvedRuntimeDownloads": [],
-  "detectableUserInstalledProviders": [
+  "candidateEnginePackages": [
     {
-      "id": "libreOffice",
-      "directions": ["docxToPdf"],
-      "redistributed": false
-    },
-    {
-      "id": "microsoftWordMacos",
-      "directions": ["docxToPdf"],
-      "redistributed": false
-    },
-    {
-      "id": "microsoftWordWindows",
-      "directions": ["docxToPdf"],
-      "redistributed": false
+      "pluginId": "zero.file",
+      "version": "1.0.0",
+      "approved": false,
+      "packageSha256": null,
+      "assetManifestSha256": "d78fcb42739cdd72e01594a605966bf8ba7e9a3a6853371bb60bae7d23c2f863",
+      "signatureAlgorithm": "Ed25519",
+      "protocolVersion": 1,
+      "hostApiRange": ">=0.1.0",
+      "components": [
+        { "name": "pdfjs-dist", "version": "6.2.108", "license": "Apache-2.0" },
+        { "name": "docx", "version": "9.7.1", "license": "MIT" },
+        { "name": "docx-preview", "version": "0.4.0", "license": "Apache-2.0" },
+        { "name": "WebKit/PDFKit", "version": "system", "license": "macOS system framework" }
+      ],
+      "directions": [
+        {
+          "direction": "pdfToDocx",
+          "platforms": ["macos", "windows"],
+          "profiles": ["editableReconstruction", "layoutPreserving"]
+        },
+        {
+          "direction": "docxToPdf",
+          "platforms": ["macos"],
+          "minimumVersion": "11.0",
+          "profiles": ["webRenderedPdf"]
+        }
+      ],
+      "confidencePolicy": {
+        "minimumTextCoverage": 0.55,
+        "maximumOverlapRatio": 0.08,
+        "maximumVectorOperationsPerPage": 16,
+        "maximumUnsupportedRotations": 0,
+        "imageOnlyUsesLayoutPreserving": true
+      },
+      "measurements": {
+        "preparedAssetInstalledBytes": 4780883,
+        "preparedAssetGzipBytes": 2458867,
+        "harnessInstalledBytes": 1228800,
+        "compressedBudgetBytes": 20971520,
+        "installedBudgetBytes": 47185920,
+        "readyDeadlineMs": 2000,
+        "cancellationDeadlineMs": 2000,
+        "maximumCapturedPageBytes": 33554432,
+        "maximumCapturedDocumentBytes": 134217728,
+        "largeCorpusMemoryCeilingBytes": null
+      },
+      "evidence": {
+        "sourceSmoke": "openspec/changes/bundle-zero-file-offline-engines/evidence/source-engine-smoke.md",
+        "packagedSmokePassed": false,
+        "completeCorpusPassed": false,
+        "releaseMeasurementsPassed": false,
+        "windowsRuntimeSmokePassed": false
+      }
     }
+  ],
+  "compatibilityProviders": [
+    { "id": "libreOffice", "directions": ["docxToPdf"], "redistributed": false, "required": false },
+    { "id": "microsoftWordMacos", "directions": ["docxToPdf"], "redistributed": false, "required": false },
+    { "id": "microsoftWordWindows", "directions": ["docxToPdf"], "redistributed": false, "required": false }
   ],
   "rejectedProviders": [
     {
       "id": "pdf2docx",
-      "reason": "Failed the CJK, layout, OCR-result, diagnostics, and redistribution gates on 2026-08-16."
+      "reason": "Unmaintained upstream and its Python stack includes AGPL-3.0 PyMuPDF plus OpenCV/NumPy runtime and size costs."
     },
     {
       "id": "onlyOfficeDesktopEditors",
-      "reason": "No unattended conversion, fidelity, process, license, or package-size acceptance evidence."
+      "reason": "AGPL-3.0, desktop-suite size, and unattended integration do not meet the plugin boundary."
+    },
+    {
+      "id": "docxRsPdfWriter",
+      "reason": "Permissive primitives do not provide mature Word pagination, shaping, table, field, or font-fallback fidelity."
     }
   ]
 }

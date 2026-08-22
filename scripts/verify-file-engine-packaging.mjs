@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 const ENGINE_TOKENS = [
@@ -44,14 +45,107 @@ export function verifyFileEnginePackaging(root = process.cwd()) {
   const policy = readJson(path.join(root, FILE_ENGINE_POLICY), issues);
   if (!policy) return issues;
 
-  assertEmptyApprovalList(policy, "approvedBundledEngines", issues);
+  assertEmptyApprovalList(policy, "approvedEnginePackages", issues);
   assertEmptyApprovalList(policy, "approvedRuntimeDownloads", issues);
+  inspectCandidatePolicy(root, policy, issues);
+  inspectEngineBuildWorkflow(root, issues);
   inspectTauriConfigs(root, issues);
   inspectPackageManifest(root, issues);
   inspectCargoManifest(root, issues);
   inspectPackagingRoots(root, issues);
   inspectShippingSources(root, issues);
   return issues;
+}
+
+function inspectCandidatePolicy(root, policy, issues) {
+  if (policy.schemaVersion !== 2) {
+    issues.push(`${FILE_ENGINE_POLICY}: schemaVersion must be 2`);
+  }
+  const candidates = policy.candidateEnginePackages;
+  if (!Array.isArray(candidates) || candidates.length !== 1) {
+    issues.push(`${FILE_ENGINE_POLICY}: exactly one Zero File candidate package is required`);
+    return;
+  }
+  const candidate = candidates[0];
+  if (candidate.pluginId !== "zero.file" || candidate.version !== "1.0.0") {
+    issues.push(`${FILE_ENGINE_POLICY}: the candidate must identify zero.file version 1.0.0`);
+  }
+  if (candidate.approved !== false || candidate.packageSha256 !== null) {
+    issues.push(`${FILE_ENGINE_POLICY}: the candidate must remain unapproved until packaged gates pass`);
+  }
+  const expectedComponents = new Map([
+    ["pdfjs-dist", ["6.2.108", "Apache-2.0"]],
+    ["docx", ["9.7.1", "MIT"]],
+    ["docx-preview", ["0.4.0", "Apache-2.0"]],
+    ["WebKit/PDFKit", ["system", "macOS system framework"]],
+  ]);
+  for (const component of candidate.components ?? []) {
+    const expected = expectedComponents.get(component.name);
+    if (!expected || component.version !== expected[0] || component.license !== expected[1]) {
+      issues.push(`${FILE_ENGINE_POLICY}: component ${component.name} is not pinned to its reviewed version/license`);
+    }
+    expectedComponents.delete(component.name);
+  }
+  if (expectedComponents.size > 0) {
+    issues.push(`${FILE_ENGINE_POLICY}: component inventory is incomplete`);
+  }
+  const manifestPath = path.join(root, "public/file-engine/manifest.json");
+  if (!fs.existsSync(manifestPath)) {
+    issues.push("public/file-engine/manifest.json is missing; run file-engine:prepare");
+  } else {
+    const digest = crypto.createHash("sha256").update(fs.readFileSync(manifestPath)).digest("hex");
+    if (candidate.assetManifestSha256 !== digest) {
+      issues.push(`${FILE_ENGINE_POLICY}: candidate assetManifestSha256 does not match prepared assets`);
+    }
+    const prepared = readJson(manifestPath, issues);
+    if (prepared) {
+      if (prepared.measurements.installedBytes > candidate.measurements.installedBudgetBytes) {
+        issues.push(`${FILE_ENGINE_POLICY}: prepared assets exceed the installed budget`);
+      }
+      if (prepared.measurements.compressedBytes > candidate.measurements.compressedBudgetBytes) {
+        issues.push(`${FILE_ENGINE_POLICY}: prepared assets exceed the compressed budget`);
+      }
+    }
+  }
+  if (candidate.evidence?.packagedSmokePassed !== false) {
+    issues.push(`${FILE_ENGINE_POLICY}: packaged smoke must remain false until a signed clean-profile run passes`);
+  }
+}
+
+function inspectEngineBuildWorkflow(root, issues) {
+  const required = [
+    "scripts/prepare-file-engine.mjs",
+    "scripts/package-file-engine.mjs",
+    "vite.file-engine.config.ts",
+    "src/plugins/file/engine/index.html",
+    "src/plugins/file/engine/THIRD_PARTY_NOTICES.md",
+  ];
+  for (const relative of required) {
+    if (!fs.existsSync(path.join(root, relative))) issues.push(`${relative} is required`);
+  }
+  const packageScriptPath = path.join(root, "scripts/package-file-engine.mjs");
+  if (fs.existsSync(packageScriptPath)) {
+    const source = fs.readFileSync(packageScriptPath, "utf8");
+    if (!source.includes("ZERO_FILE_ENGINE_SIGNING_KEY")) {
+      issues.push("scripts/package-file-engine.mjs must require an externally supplied signing key");
+    }
+    if (!source.includes("timingSafeEqual") || !source.includes("crypto.verify")) {
+      issues.push("scripts/package-file-engine.mjs must verify the supplied key and generated signature");
+    }
+    if (/BEGIN (?:PRIVATE|OPENSSH) KEY/.test(source)) {
+      issues.push("scripts/package-file-engine.mjs must not contain a private signing key");
+    }
+  }
+  const nativePrint = path.join(root, "src-tauri/src/services/file/native_print.rs");
+  if (fs.existsSync(nativePrint)) {
+    const source = fs.readFileSync(nativePrint, "utf8");
+    if (source.includes("NSPrintSaveJob") || source.includes("printOperationWithPrintInfo")) {
+      issues.push("native_print.rs must use bounded WKWebView PDF capture, not an NSPrint spool job");
+    }
+    if (!source.includes("createPDFWithConfiguration_completionHandler") || !source.includes("PDFKit")) {
+      issues.push("native_print.rs must retain WebKit capture and PDFKit merging");
+    }
+  }
 }
 
 export function auditTextForEngineDownloads(source, label = "source") {
@@ -77,7 +171,7 @@ function assertEmptyApprovalList(policy, key, issues) {
     issues.push(`${FILE_ENGINE_POLICY}: ${key} must be an array`);
   } else if (policy[key].length !== 0) {
     issues.push(
-      `${FILE_ENGINE_POLICY}: ${key} must stay empty until the engine decision records release-owner approval`,
+      `${FILE_ENGINE_POLICY}: ${key} must stay empty until signed packaged release gates pass`,
     );
   }
 }
@@ -245,6 +339,6 @@ if (isMain) {
     for (const issue of issues) console.error(`- ${issue}`);
     process.exitCode = 1;
   } else {
-    console.log("File engine packaging policy passed: no bundled or downloaded engine is approved.");
+    console.log("File engine packaging policy passed: the signed plugin candidate is reproducible and remains unapproved.");
   }
 }

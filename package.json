@@ -5,7 +5,12 @@
   "packageManager": "pnpm@10.33.0",
   "type": "module",
   "scripts": {
+    "file-engine:prepare": "node scripts/prepare-file-engine.mjs",
+    "file-engine:build": "pnpm file-engine:prepare && vite build --config vite.file-engine.config.ts",
+    "file-engine:package": "node scripts/package-file-engine.mjs",
+    "predev": "pnpm file-engine:prepare",
     "dev": "vite",
+    "prebuild": "pnpm file-engine:prepare",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
@@ -24,7 +29,10 @@
     "@tauri-apps/plugin-autostart": "^2.5.1",
     "@tauri-apps/plugin-global-shortcut": "^2.3.1",
     "@tauri-apps/plugin-opener": "^2",
+    "docx": "9.7.1",
+    "docx-preview": "0.4.0",
     "lucide-react": "^1.31.0",
+    "pdfjs-dist": "6.2.108",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
@@ -33,6 +41,7 @@
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
+    "jszip": "3.10.1",
     "typescript": "~5.8.3",
     "vite": "^7.0.4"
   }

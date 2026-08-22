@@ -31,6 +31,7 @@ const sources = [
   "src/plugins/caffeine/caffeineDuration.ts",
   "src/plugins/caffeine/i18n.ts",
   "src/plugins/file/contracts.ts",
+  "src/plugins/file/engine/pdfComplexity.ts",
   "src/plugins/file/fileModel.ts",
   "src/plugins/file/fileServiceCore.ts",
   "src/plugins/file/i18n.ts",

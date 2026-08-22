@@ -7,7 +7,8 @@ use super::artifacts::validate_provider_output;
 use super::contracts::{
     FileConversionDirection, FileConversionError, FileConversionErrorCode, FileConversionProgress,
     FileConversionProvider as FileConversionProviderSnapshot, FileConversionProviderAvailability,
-    FileConversionProviderId, FileConversionStage,
+    FileConversionProviderId, FileConversionProviderOrigin, FileConversionQualityProfile,
+    FileConversionStage,
 };
 use super::process::{DirectProcessRequest, DirectProcessRunner, SystemProcessRunner};
 use super::provider::{
@@ -119,6 +120,11 @@ impl FileConversionProvider for MicrosoftWordMacosProvider {
                     id: FileConversionProviderId::MicrosoftWordMacos,
                     display_name: "Microsoft Word".into(),
                     version: Some(installation.version.clone()),
+                    origin: FileConversionProviderOrigin::Compatibility,
+                    engine_version: None,
+                    package_version: None,
+                    platform_minimum: Some("macOS 11".into()),
+                    quality_profiles: vec![FileConversionQualityProfile::CompatibilityProvider],
                     directions: DIRECTIONS.to_vec(),
                     availability: unavailable(
                         FileConversionErrorCode::EngineUnavailable,
@@ -152,6 +158,11 @@ impl FileConversionProvider for MicrosoftWordMacosProvider {
             id: FileConversionProviderId::MicrosoftWordMacos,
             display_name: "Microsoft Word".into(),
             version,
+            origin: FileConversionProviderOrigin::Compatibility,
+            engine_version: None,
+            package_version: None,
+            platform_minimum: Some("macOS 11".into()),
+            quality_profiles: vec![FileConversionQualityProfile::CompatibilityProvider],
             directions: DIRECTIONS.to_vec(),
             availability,
         }
@@ -210,7 +221,14 @@ impl FileConversionProvider for MicrosoftWordMacosProvider {
             error.provider_id = Some(FileConversionProviderId::MicrosoftWordMacos);
             error
         })?;
-        Ok(ProviderConversionOutput { path: output })
+        Ok(ProviderConversionOutput {
+            path: output,
+            provider_origin: FileConversionProviderOrigin::Compatibility,
+            engine_version: self.probe().version,
+            quality_profile: FileConversionQualityProfile::CompatibilityProvider,
+            warning_keys: vec!["file.quality.compatibilityProvider".into()],
+            page_count: None,
+        })
     }
 }
 

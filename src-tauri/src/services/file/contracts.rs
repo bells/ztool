@@ -10,9 +10,27 @@ pub enum FileConversionDirection {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum FileConversionProviderId {
+    ZeroFilePdfToDocx,
+    ZeroFileDocxToPdfMacos,
     LibreOffice,
     MicrosoftWordMacos,
     MicrosoftWordWindows,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum FileConversionProviderOrigin {
+    BuiltIn,
+    Compatibility,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum FileConversionQualityProfile {
+    EditableReconstruction,
+    LayoutPreserving,
+    WebRenderedPdf,
+    CompatibilityProvider,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -67,6 +85,14 @@ pub struct FileConversionProvider {
     pub display_name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
+    pub origin: FileConversionProviderOrigin,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub engine_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub package_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub platform_minimum: Option<String>,
+    pub quality_profiles: Vec<FileConversionQualityProfile>,
     pub directions: Vec<FileConversionDirection>,
     pub availability: FileConversionProviderAvailability,
 }
@@ -166,6 +192,14 @@ pub struct FileConversionResult {
     pub output_name: String,
     pub size_bytes: u64,
     pub completed_at_ms: u64,
+    pub provider_id: FileConversionProviderId,
+    pub provider_origin: FileConversionProviderOrigin,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub engine_version: Option<String>,
+    pub quality_profile: FileConversionQualityProfile,
+    pub warning_keys: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page_count: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

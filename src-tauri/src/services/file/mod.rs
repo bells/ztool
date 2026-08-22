@@ -1,9 +1,12 @@
 pub mod artifacts;
+pub mod built_in;
 pub mod capabilities;
 pub mod contracts;
 pub mod discovery;
+pub mod engine_bridge;
 pub mod errors;
 pub mod libreoffice;
+pub mod native_print;
 pub mod output;
 pub mod process;
 pub mod provider;

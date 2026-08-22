@@ -253,3 +253,134 @@ fn package_validation_rejects_unsafe_archive_entries() {
         .iter()
         .any(|issue| issue.code == "package.archive.unsafePath"));
 }
+
+#[test]
+fn generic_plugin_cannot_claim_document_conversion_trust() {
+    let package = write_zplugin_package(
+        "impostor.zplugin",
+        r#"{
+            "name": "impostor",
+            "version": "0.1.0",
+            "author": "attacker",
+            "main": "dist/index.html",
+            "id": "zero.file",
+            "permissions": ["document.convert"]
+        }"#,
+        &[("dist/index.html", "<main>wrong</main>")],
+    );
+    let report = validate_zplugin_package(&package).expect("validation report");
+    assert!(!report.valid);
+    assert!(report
+        .issues
+        .iter()
+        .any(|issue| issue.code == "manifest.documentConvert.firstPartyOnly"));
+}
+
+#[test]
+fn first_party_engine_rejects_unsigned_unsafe_and_digest_mismatched_assets() {
+    let package = write_zplugin_package(
+        "zero-file.zplugin",
+        r#"{
+            "name": "zero.file",
+            "id": "zero.file",
+            "version": "1.0.0",
+            "author": "bells",
+            "main": "dist/index.html",
+            "permissions": ["document.convert"],
+            "firstPartyEngine": {
+              "protocolVersion": 1,
+              "packageVersion": "1.0.0",
+              "hostApiRange": "0.1.0",
+              "directions": ["pdfToDocx"],
+              "platformMinimums": [{"platform": "macos", "version": "11.0"}],
+              "assets": [
+                {"path": "engine/worker.mjs", "sha256": "0000000000000000000000000000000000000000000000000000000000000000", "bytes": 6, "mediaType": "text/javascript"},
+                {"path": "engine/licenses/NOTICE.txt", "sha256": "0000000000000000000000000000000000000000000000000000000000000000", "bytes": 6, "mediaType": "text/plain"},
+                {"path": "engine/../escape", "sha256": "0000000000000000000000000000000000000000000000000000000000000000", "bytes": 1, "mediaType": "text/plain"}
+              ],
+              "notices": ["engine/licenses/NOTICE.txt"],
+              "signature": "unsigned"
+            }
+        }"#,
+        &[
+            ("dist/index.html", "<main>Zero File</main>"),
+            ("engine/worker.mjs", "worker"),
+            ("engine/licenses/NOTICE.txt", "notice"),
+        ],
+    );
+    let report = validate_zplugin_package(&package).expect("validation report");
+    assert!(!report.valid);
+    for code in [
+        "engine.asset.pathInvalid",
+        "engine.asset.digestMismatch",
+        "engine.signature.invalid",
+    ] {
+        assert!(
+            report.issues.iter().any(|issue| issue.code == code),
+            "missing {code}"
+        );
+    }
+}
+
+#[test]
+fn first_party_engine_rejects_incompatible_duplicate_undeclared_and_oversized_metadata() {
+    let wrong_platform = if cfg!(target_os = "linux") {
+        "windows"
+    } else {
+        "linux"
+    };
+    let manifest = serde_json::json!({
+        "name": "zero.file",
+        "id": "zero.file",
+        "version": "1.0.0",
+        "author": "bells",
+        "main": "engine/index.html",
+        "permissions": ["document.convert"],
+        "engines": {"zero": ">=99.0.0", "api": "1"},
+        "platforms": [wrong_platform],
+        "firstPartyEngine": {
+            "protocolVersion": 2,
+            "packageVersion": "1.0.0",
+            "hostApiRange": ">=99.0.0",
+            "directions": ["pdfToDocx"],
+            "platformMinimums": [{"platform": wrong_platform, "version": "99.0"}],
+            "assets": [
+                {"path": "engine/index.html", "sha256": "00".repeat(32), "bytes": 1, "mediaType": "application/x-executable"},
+                {"path": "engine/index.html", "sha256": "00".repeat(32), "bytes": 1, "mediaType": "text/html"},
+                {"path": "engine/huge.wasm", "sha256": "00".repeat(32), "bytes": 50 * 1024 * 1024, "mediaType": "application/wasm"}
+            ],
+            "notices": ["NOTICE.txt"],
+            "signature": "unsigned"
+        }
+    })
+    .to_string();
+    let package = write_zplugin_package(
+        "zero-file-incompatible.zplugin",
+        &manifest,
+        &[
+            ("engine/index.html", "x"),
+            ("engine/extra.mjs", "undeclared"),
+        ],
+    );
+
+    let report = validate_zplugin_package(&package).expect("validation report");
+    assert!(!report.valid);
+    for code in [
+        "manifest.zero.incompatible",
+        "manifest.platform.incompatible",
+        "engine.protocol.incompatible",
+        "engine.host.incompatible",
+        "engine.asset.pathInvalid",
+        "engine.asset.mediaTypeInvalid",
+        "engine.asset.sizeInvalid",
+        "engine.asset.undeclared",
+        "engine.notice.invalid",
+        "engine.signature.invalid",
+    ] {
+        assert!(
+            report.issues.iter().any(|issue| issue.code == code),
+            "missing {code}: {:?}",
+            report.issues
+        );
+    }
+}

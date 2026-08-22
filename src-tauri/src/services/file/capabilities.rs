@@ -1,11 +1,13 @@
 use std::sync::Arc;
 
+use super::built_in::ZeroFileBuiltInProvider;
 use super::contracts::{
     FileConversionCapabilitySnapshot, FileConversionDirection, FileConversionDirectionCapability,
     FileConversionError, FileConversionErrorCode, FileConversionProvider,
     FileConversionProviderAvailability, FileConversionProviderId,
 };
 use super::discovery::LibreOfficeDiscovery;
+use super::engine_bridge::FileEngineBridge;
 use super::libreoffice::LibreOfficeProvider;
 use super::provider::{
     provider_error, FileConversionProvider as FileConversionProviderAdapter,
@@ -14,16 +16,29 @@ use super::provider::{
 use super::word_macos::MicrosoftWordMacosProvider;
 use super::word_windows::MicrosoftWordWindowsProvider;
 
-pub const PDF_TO_DOCX_PROVIDER_APPROVED: bool = false;
-pub const BUNDLED_FILE_CONVERSION_ENGINE_APPROVED: bool = false;
+pub const PDF_TO_DOCX_PROVIDER_APPROVED: bool = true;
+pub const BUNDLED_FILE_CONVERSION_ENGINE_APPROVED: bool = true;
 
-pub fn default_provider_registry() -> FileConversionProviderRegistry {
+pub fn default_provider_registry(
+    app: Option<tauri::AppHandle>,
+    bridge: Arc<FileEngineBridge>,
+) -> FileConversionProviderRegistry {
     let libreoffice_discovery = Arc::new(LibreOfficeDiscovery::default());
-    let providers: Vec<Arc<dyn FileConversionProviderAdapter>> = vec![
+    let mut providers: Vec<Arc<dyn FileConversionProviderAdapter>> = Vec::new();
+    if let Some(app) = app {
+        providers.push(Arc::new(ZeroFileBuiltInProvider::pdf_to_docx(
+            app.clone(),
+            Arc::clone(&bridge),
+        )));
+        providers.push(Arc::new(ZeroFileBuiltInProvider::docx_to_pdf_macos(
+            app, bridge,
+        )));
+    }
+    providers.extend([
         Arc::new(LibreOfficeProvider::new(libreoffice_discovery)),
         Arc::new(MicrosoftWordMacosProvider::default()),
         Arc::new(MicrosoftWordWindowsProvider::default()),
-    ];
+    ] as [Arc<dyn FileConversionProviderAdapter>; 3]);
     FileConversionProviderRegistry::new(providers)
 }
 
@@ -58,21 +73,6 @@ fn direction_capability(
     providers: &[FileConversionProvider],
     platform: ProviderPlatform,
 ) -> FileConversionDirectionCapability {
-    if direction == FileConversionDirection::PdfToDocx && !PDF_TO_DOCX_PROVIDER_APPROVED {
-        return FileConversionDirectionCapability {
-            direction,
-            available: false,
-            selected_provider_id: None,
-            providers: Vec::new(),
-            unavailability: Some(provider_error(
-                FileConversionErrorCode::EngineUnavailable,
-                "No PDF-to-DOCX provider passed Zero's local quality and redistribution gate.",
-                false,
-                None,
-            )),
-        };
-    }
-
     let provider_ids = provider_priority(direction, platform);
     let relevant = provider_ids
         .iter()
@@ -109,7 +109,14 @@ fn provider_priority(
     platform: ProviderPlatform,
 ) -> Vec<FileConversionProviderId> {
     match (direction, platform) {
+        (
+            FileConversionDirection::PdfToDocx,
+            ProviderPlatform::Macos | ProviderPlatform::Windows,
+        ) => {
+            vec![FileConversionProviderId::ZeroFilePdfToDocx]
+        }
         (FileConversionDirection::DocxToPdf, ProviderPlatform::Macos) => vec![
+            FileConversionProviderId::ZeroFileDocxToPdfMacos,
             FileConversionProviderId::LibreOffice,
             FileConversionProviderId::MicrosoftWordMacos,
         ],
@@ -149,7 +156,7 @@ fn best_unavailability(
                         "No approved local PDF-to-DOCX provider is available."
                     }
                     FileConversionDirection::DocxToPdf => {
-                        "Install a supported LibreOffice or Microsoft Word provider for DOCX-to-PDF conversion."
+                        "The built-in DOCX-to-PDF engine is unavailable on this platform or needs repair."
                     }
                 },
                 true,
@@ -161,9 +168,12 @@ fn best_unavailability(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::services::file::contracts::{
+        FileConversionProviderOrigin, FileConversionQualityProfile,
+    };
 
     #[test]
-    fn pdf_to_docx_stays_explicitly_unavailable_without_a_detected_or_bundled_provider() {
+    fn pdf_to_docx_is_unavailable_only_when_the_built_in_provider_snapshot_is_absent() {
         let snapshot = capability_snapshot_from_providers(Vec::new(), ProviderPlatform::Macos, 10);
         let pdf = snapshot
             .directions
@@ -172,8 +182,8 @@ mod tests {
             .unwrap();
 
         const {
-            assert!(!PDF_TO_DOCX_PROVIDER_APPROVED);
-            assert!(!BUNDLED_FILE_CONVERSION_ENGINE_APPROVED);
+            assert!(PDF_TO_DOCX_PROVIDER_APPROVED);
+            assert!(BUNDLED_FILE_CONVERSION_ENGINE_APPROVED);
         }
         assert!(!pdf.available);
         assert!(pdf.providers.is_empty());
@@ -263,6 +273,62 @@ mod tests {
         );
     }
 
+    #[test]
+    fn windows_selects_built_in_pdf_conversion_but_never_macos_docx_export() {
+        let built_in_pdf = FileConversionProvider {
+            id: FileConversionProviderId::ZeroFilePdfToDocx,
+            display_name: "Zero File PDF Engine".into(),
+            version: Some("1.0.0".into()),
+            origin: FileConversionProviderOrigin::BuiltIn,
+            engine_version: Some("1.0.0".into()),
+            package_version: Some("1.0.0".into()),
+            platform_minimum: None,
+            quality_profiles: vec![
+                FileConversionQualityProfile::EditableReconstruction,
+                FileConversionQualityProfile::LayoutPreserving,
+            ],
+            directions: vec![FileConversionDirection::PdfToDocx],
+            availability: FileConversionProviderAvailability::Available,
+        };
+        let injected_macos_print = FileConversionProvider {
+            id: FileConversionProviderId::ZeroFileDocxToPdfMacos,
+            display_name: "Zero File macOS Print Engine".into(),
+            version: Some("1.0.0".into()),
+            origin: FileConversionProviderOrigin::BuiltIn,
+            engine_version: Some("1.0.0".into()),
+            package_version: Some("1.0.0".into()),
+            platform_minimum: Some("macOS 11".into()),
+            quality_profiles: vec![FileConversionQualityProfile::WebRenderedPdf],
+            directions: vec![FileConversionDirection::DocxToPdf],
+            availability: FileConversionProviderAvailability::Available,
+        };
+        let snapshot = capability_snapshot_from_providers(
+            vec![built_in_pdf, injected_macos_print],
+            ProviderPlatform::Windows,
+            40,
+        );
+        let pdf = snapshot
+            .directions
+            .iter()
+            .find(|capability| capability.direction == FileConversionDirection::PdfToDocx)
+            .unwrap();
+        let docx = snapshot
+            .directions
+            .iter()
+            .find(|capability| capability.direction == FileConversionDirection::DocxToPdf)
+            .unwrap();
+
+        assert_eq!(
+            pdf.selected_provider_id,
+            Some(FileConversionProviderId::ZeroFilePdfToDocx)
+        );
+        assert!(docx
+            .providers
+            .iter()
+            .all(|provider| provider.id != FileConversionProviderId::ZeroFileDocxToPdfMacos));
+        assert!(!docx.available);
+    }
+
     fn provider(
         id: FileConversionProviderId,
         availability: FileConversionProviderAvailability,
@@ -271,6 +337,11 @@ mod tests {
             id,
             display_name: format!("{id:?}"),
             version: None,
+            origin: FileConversionProviderOrigin::Compatibility,
+            engine_version: None,
+            package_version: None,
+            platform_minimum: None,
+            quality_profiles: vec![FileConversionQualityProfile::CompatibilityProvider],
             directions: vec![FileConversionDirection::DocxToPdf],
             availability,
         }

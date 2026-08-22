@@ -7,6 +7,7 @@
       "file": "rich-layout.docx",
       "direction": "docxToPdf",
       "expectedPreflight": "valid",
+      "expectedQualityProfile": "webRenderedPdf",
       "coverage": [
         "latin",
         "cjk",
@@ -25,9 +26,11 @@
       "file": "large-structured.docx",
       "direction": "docxToPdf",
       "expectedPreflight": "valid",
+      "expectedQualityProfile": "webRenderedPdf",
       "coverage": [
         "large",
         "pagination",
+        "wordPagination",
         "cjk",
         "fonts"
       ],
@@ -55,6 +58,7 @@
       "file": "rich-layout.pdf",
       "direction": "pdfToDocx",
       "expectedPreflight": "valid",
+      "expectedQualityProfile": "layoutPreserving",
       "coverage": [
         "latin",
         "cjk",
@@ -68,7 +72,8 @@
     {
       "file": "image-only-scan.pdf",
       "direction": "pdfToDocx",
-      "expectedPreflight": "ocrRequired",
+      "expectedPreflight": "valid",
+      "expectedQualityProfile": "layoutPreserving",
       "coverage": [
         "scanned",
         "imageOnly"
@@ -88,6 +93,7 @@
       "file": "large-structured.pdf",
       "direction": "pdfToDocx",
       "expectedPreflight": "valid",
+      "expectedQualityProfile": "editableReconstruction",
       "coverage": [
         "large",
         "pagination",

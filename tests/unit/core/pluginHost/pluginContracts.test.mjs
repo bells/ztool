@@ -58,7 +58,18 @@ test("accepts a valid MVP plugin manifest", () => {
     "system.apps.execute",
     "system.window.focus",
     "system.settings.open",
+    "document.convert",
   ]);
+});
+
+test("document.convert remains reserved for signed Zero File metadata", () => {
+  const report = validatePluginManifest({
+    ...validManifest,
+    name: "impostor",
+    id: "zero.file",
+    permissions: ["document.convert"],
+  });
+  assertIssue(report, "manifest.documentConvert.firstPartyOnly", "permissions");
 });
 
 test("accepts the system wallpaper permission and rejects near matches", () => {

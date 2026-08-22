@@ -601,6 +601,12 @@ mod tests {
             output_name: "converted.pdf".into(),
             size_bytes: 42,
             completed_at_ms: 20,
+            provider_id: FileConversionProviderId::LibreOffice,
+            provider_origin: crate::services::file::contracts::FileConversionProviderOrigin::Compatibility,
+            engine_version: Some("1.0.0".into()),
+            quality_profile: crate::services::file::contracts::FileConversionQualityProfile::CompatibilityProvider,
+            warning_keys: Vec::new(),
+            page_count: None,
         }
     }
 

@@ -1,9 +1,19 @@
 export type FileConversionDirection = "pdfToDocx" | "docxToPdf";
 
 export type FileConversionProviderId =
+  | "zeroFilePdfToDocx"
+  | "zeroFileDocxToPdfMacos"
   | "libreOffice"
   | "microsoftWordMacos"
   | "microsoftWordWindows";
+
+export type FileConversionProviderOrigin = "builtIn" | "compatibility";
+
+export type FileConversionQualityProfile =
+  | "editableReconstruction"
+  | "layoutPreserving"
+  | "webRenderedPdf"
+  | "compatibilityProvider";
 
 export type FileConversionErrorCode =
   | "invalidInput"
@@ -44,6 +54,11 @@ export interface FileConversionProvider {
   id: FileConversionProviderId;
   displayName: string;
   version?: string;
+  origin: FileConversionProviderOrigin;
+  engineVersion?: string;
+  packageVersion?: string;
+  platformMinimum?: string;
+  qualityProfiles: FileConversionQualityProfile[];
   directions: FileConversionDirection[];
   availability: FileConversionProviderAvailability;
 }
@@ -108,6 +123,12 @@ export interface FileConversionResult {
   outputName: string;
   sizeBytes: number;
   completedAtMs: number;
+  providerId: FileConversionProviderId;
+  providerOrigin: FileConversionProviderOrigin;
+  engineVersion?: string;
+  qualityProfile: FileConversionQualityProfile;
+  warningKeys: string[];
+  pageCount?: number;
 }
 
 export type FileConversionJobState =

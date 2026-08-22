@@ -5,6 +5,7 @@ import type {
   FileConversionDirectionCapability,
   FileConversionJobSnapshot,
   FileConversionProviderId,
+  FileConversionProviderOrigin,
   FileConversionStage,
 } from "./contracts";
 
@@ -47,6 +48,7 @@ export interface FileConversionProviderGuidance {
   direction: FileConversionDirection;
   providerId?: FileConversionProviderId;
   providerName?: string;
+  providerOrigin?: FileConversionProviderOrigin;
   errorCode?: string;
 }
 
@@ -146,6 +148,7 @@ export function fileConversionProviderGuidance(
       ? { providerId: capability.selectedProviderId }
       : {}),
     ...(provider ? { providerName: provider.displayName } : {}),
+    ...(provider?.origin ? { providerOrigin: provider.origin } : {}),
     ...(capability?.unavailability
       ? { errorCode: capability.unavailability.code }
       : {}),

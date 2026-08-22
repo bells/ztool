@@ -58,6 +58,12 @@ jobs:
       - name: Build frontend
         run: pnpm build
 
+      - name: Build and audit Zero File PDF engine path
+        if: runner.os == 'Windows'
+        run: |
+          pnpm file-engine:build
+          node --test tests/integration/sourceContracts/fileEnginePackaging.test.mjs
+
       - name: Check Rust
         run: cargo check --manifest-path src-tauri/Cargo.toml --locked
 

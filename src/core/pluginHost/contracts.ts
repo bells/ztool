@@ -13,6 +13,7 @@ export const SUPPORTED_PLUGIN_PERMISSIONS = [
   "system.apps.execute",
   "system.window.focus",
   "system.settings.open",
+  "document.convert",
 ] as const;
 
 export type PluginPermission = (typeof SUPPORTED_PLUGIN_PERMISSIONS)[number];
@@ -32,6 +33,31 @@ export interface PluginEngines {
   zero?: string;
   ztool?: string;
   api?: string;
+}
+
+export type PluginDocumentDirection = "pdfToDocx" | "docxToPdf";
+
+export interface PluginEngineAsset {
+  path: string;
+  sha256: string;
+  bytes: number;
+  mediaType: string;
+}
+
+export interface PluginEnginePlatformMinimum {
+  platform: "macos" | "windows" | "linux";
+  version: string;
+}
+
+export interface PluginFirstPartyEngine {
+  protocolVersion: number;
+  packageVersion: string;
+  hostApiRange: string;
+  directions: PluginDocumentDirection[];
+  platformMinimums: PluginEnginePlatformMinimum[];
+  assets: PluginEngineAsset[];
+  notices: string[];
+  signature: string;
 }
 
 export interface PluginContributionView {
@@ -102,6 +128,7 @@ export interface PluginManifest {
   platforms?: Array<"macos" | "windows" | "linux">;
   runtime?: PluginRuntime;
   contributes?: PluginContributions;
+  firstPartyEngine?: PluginFirstPartyEngine;
 }
 
 export interface PluginMarketEntry {

@@ -552,16 +552,16 @@ def sha256(path: Path) -> str:
 
 def write_manifest() -> None:
     cases = [
-        ("rich-layout.docx", "docxToPdf", "valid", ["latin", "cjk", "fonts", "headings", "table", "image", "columns", "header", "footer", "pageBreak"]),
-        ("large-structured.docx", "docxToPdf", "valid", ["large", "pagination", "cjk", "fonts"]),
-        ("malformed.docx", None, "invalidInput", ["malformedContainer"]),
-        ("~$office-lock.docx", None, "invalidInput", ["officeLockFile"]),
-        ("rich-layout.pdf", "pdfToDocx", "valid", ["latin", "cjk", "table", "image", "columns", "pageBreak"]),
-        ("image-only-scan.pdf", "pdfToDocx", "ocrRequired", ["scanned", "imageOnly"]),
-        ("encrypted.pdf", "pdfToDocx", "passwordRequired", ["encrypted"]),
-        ("large-structured.pdf", "pdfToDocx", "valid", ["large", "pagination", "cjk"]),
-        ("malformed.pdf", None, "invalidInput", ["malformedHeader"]),
-        ("unsupported.txt", None, "unsupportedFormat", ["unsupportedExtension"]),
+        ("rich-layout.docx", "docxToPdf", "valid", "webRenderedPdf", ["latin", "cjk", "fonts", "headings", "table", "image", "columns", "header", "footer", "pageBreak"]),
+        ("large-structured.docx", "docxToPdf", "valid", "webRenderedPdf", ["large", "pagination", "wordPagination", "cjk", "fonts"]),
+        ("malformed.docx", None, "invalidInput", None, ["malformedContainer"]),
+        ("~$office-lock.docx", None, "invalidInput", None, ["officeLockFile"]),
+        ("rich-layout.pdf", "pdfToDocx", "valid", "layoutPreserving", ["latin", "cjk", "table", "image", "columns", "pageBreak"]),
+        ("image-only-scan.pdf", "pdfToDocx", "valid", "layoutPreserving", ["scanned", "imageOnly"]),
+        ("encrypted.pdf", "pdfToDocx", "passwordRequired", None, ["encrypted"]),
+        ("large-structured.pdf", "pdfToDocx", "valid", "editableReconstruction", ["large", "pagination", "cjk"]),
+        ("malformed.pdf", None, "invalidInput", None, ["malformedHeader"]),
+        ("unsupported.txt", None, "unsupportedFormat", None, ["unsupportedExtension"]),
     ]
     manifest = {
         "schemaVersion": 1,
@@ -572,10 +572,11 @@ def write_manifest() -> None:
                 "file": name,
                 "direction": direction,
                 "expectedPreflight": expected,
+                **({"expectedQualityProfile": profile} if profile else {}),
                 "coverage": coverage,
                 "sha256": sha256(OUTPUT / name),
             }
-            for name, direction, expected, coverage in cases
+            for name, direction, expected, profile, coverage in cases
         ],
     }
     (OUTPUT / "expected.json").write_text(

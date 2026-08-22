@@ -81,6 +81,7 @@ fn plugin_record(name: &str, enabled: bool, order: Option<u32>) -> PluginRecord 
                 settings: None,
                 status_bar_items: Some(vec![status_item]),
             }),
+            first_party_engine: None,
         },
         installed_path: None,
         approved_permissions: vec![PluginPermission::UiMessage],

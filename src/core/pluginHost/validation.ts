@@ -22,6 +22,7 @@ export const SUPPORTED_PLUGIN_PERMISSIONS = [
   "system.apps.execute",
   "system.window.focus",
   "system.settings.open",
+  "document.convert",
 ] as const;
 
 const SEMVER_PATTERN = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/;
@@ -45,6 +46,7 @@ export function validatePluginManifest(value: unknown): PluginManifestValidation
   readRequiredString(value, "author", issues, "manifest.required");
   const main = readRequiredString(value, "main", issues, "manifest.required");
   readPermissions(value.permissions, "permissions", issues, "manifest");
+  const permissions = Array.isArray(value.permissions) ? value.permissions : [];
 
   if (name !== null && !NAME_PATTERN.test(name)) {
     issues.push(issue("manifest.name.invalid", "name", "Plugin name must use lowercase letters, numbers, dots, underscores, or dashes."));
@@ -77,6 +79,24 @@ export function validatePluginManifest(value: unknown): PluginManifestValidation
     }
   }
 
+  const requestsDocumentConversion = permissions.includes("document.convert");
+  if (requestsDocumentConversion) {
+    if (name !== "zero.file" || value.id !== "zero.file" || value.author !== "bells") {
+      issues.push(issue(
+        "manifest.documentConvert.firstPartyOnly",
+        "permissions",
+        "document.convert is reserved for the signed first-party Zero File package.",
+      ));
+    }
+    validateFirstPartyEngine(value.firstPartyEngine, version, issues);
+  } else if (value.firstPartyEngine !== undefined) {
+    issues.push(issue(
+      "manifest.firstPartyEngine.permissionMissing",
+      "firstPartyEngine",
+      "First-party engine metadata requires document.convert.",
+    ));
+  }
+
   if (issues.length > 0) {
     return { valid: false, issues };
   }
@@ -86,6 +106,62 @@ export function validatePluginManifest(value: unknown): PluginManifestValidation
     issues: [],
     manifest: normalizeManifestEngines(value) as unknown as PluginManifest,
   };
+}
+
+function validateFirstPartyEngine(
+  value: unknown,
+  pluginVersion: string | null,
+  issues: PluginValidationIssue[],
+) {
+  if (!isRecord(value)) {
+    issues.push(issue("engine.manifest.required", "firstPartyEngine", "Signed engine metadata is required."));
+    return;
+  }
+  if (value.protocolVersion !== 1) {
+    issues.push(issue("engine.protocol.incompatible", "firstPartyEngine.protocolVersion", "Engine protocolVersion must be 1."));
+  }
+  if (typeof value.packageVersion !== "string" || value.packageVersion !== pluginVersion) {
+    issues.push(issue("engine.packageVersion.invalid", "firstPartyEngine.packageVersion", "Engine packageVersion must match the plugin version."));
+  }
+  if (typeof value.hostApiRange !== "string" || !isCompatibleZeroHostRange(value.hostApiRange)) {
+    issues.push(issue("engine.host.incompatible", "firstPartyEngine.hostApiRange", "Engine hostApiRange is incompatible."));
+  }
+  if (!Array.isArray(value.directions) || value.directions.length === 0 || value.directions.some(
+    (direction) => direction !== "pdfToDocx" && direction !== "docxToPdf",
+  )) {
+    issues.push(issue("engine.directions.invalid", "firstPartyEngine.directions", "Engine directions are invalid."));
+  }
+  if (!Array.isArray(value.assets) || value.assets.length === 0) {
+    issues.push(issue("engine.assets.required", "firstPartyEngine.assets", "Engine assets are required."));
+  } else {
+    const paths = new Set<string>();
+    value.assets.forEach((asset, index) => {
+      const prefix = `firstPartyEngine.assets[${index}]`;
+      if (!isRecord(asset) || typeof asset.path !== "string" || !asset.path.startsWith("engine/") ||
+        !isSafePackageRelativePath(asset.path) || paths.has(asset.path)) {
+        issues.push(issue("engine.asset.pathInvalid", `${prefix}.path`, "Engine asset path must be unique and remain under engine/."));
+      } else {
+        paths.add(asset.path);
+      }
+      if (!isRecord(asset) || typeof asset.sha256 !== "string" || !SHA256_PATTERN.test(asset.sha256)) {
+        issues.push(issue("engine.asset.digestInvalid", `${prefix}.sha256`, "Engine asset sha256 is invalid."));
+      }
+      if (!isRecord(asset) || typeof asset.bytes !== "number" || !Number.isSafeInteger(asset.bytes) || asset.bytes <= 0) {
+        issues.push(issue("engine.asset.sizeInvalid", `${prefix}.bytes`, "Engine asset bytes must be a positive safe integer."));
+      }
+      if (!isRecord(asset) || typeof asset.mediaType !== "string" || asset.mediaType.length === 0) {
+        issues.push(issue("engine.asset.mediaTypeInvalid", `${prefix}.mediaType`, "Engine asset mediaType is required."));
+      }
+    });
+  }
+  if (!Array.isArray(value.notices) || value.notices.length === 0 || value.notices.some(
+    (notice) => typeof notice !== "string" || !notice.startsWith("engine/licenses/") || !isSafePackageRelativePath(notice),
+  )) {
+    issues.push(issue("engine.notices.invalid", "firstPartyEngine.notices", "Engine notices must remain under engine/licenses/."));
+  }
+  if (typeof value.signature !== "string" || !/^[A-Za-z0-9+/]{86}==$/.test(value.signature)) {
+    issues.push(issue("engine.signature.invalid", "firstPartyEngine.signature", "A detached Ed25519 signature is required."));
+  }
 }
 
 export function validatePluginMarketIndex(value: unknown): PluginMarketValidationReport {
