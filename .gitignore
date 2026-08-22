@@ -11,6 +11,18 @@ lerna-debug.log*
 node_modules
 .pnpm-store/
 
+# TypeScript cache
+*.tsbuildinfo
+
+# Python cache and local environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
 # Frontend build output
 build/
 dist
@@ -29,10 +41,13 @@ src-tauri/.cargo/
 
 # Local agent skill/cache files
 .agents/
+.impeccable/
 
 # OS files
 .DS_Store
+._*
 Thumbs.db
+Desktop.ini
 
 # Editor directories and files
 .vscode/*
