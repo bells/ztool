@@ -147,16 +147,57 @@ export function validateIconSystem(root = PROJECT_ROOT) {
   }
 
   const zero = readRequiredFile(iconDir, "zero.svg", issues);
-  if (zero && !zero.includes('<path d="M5.5 18.5 18.5 5.5"/>')) {
-    issues.push("zero.svg: missing the canonical 45 degree slash");
+  if (zero) {
+    for (const expected of [
+      '<path d="M12 2.1C9 2.1 6.48 5.29 5.04 9.14C2.64 15.41 5.28 21.24 12 21.9C18.72 21.24 21.36 15.41 18.96 9.14C17.52 5.29 15 2.1 12 2.1ZM8.54 17.34L17.34 8.54A1.32 1.32 0 0 0 15.46 6.66L6.66 15.46A1.32 1.32 0 0 0 8.54 17.34Z"',
+      'fill="currentColor" stroke="none" fill-rule="evenodd"',
+    ]) {
+      if (!zero.includes(expected)) {
+        issues.push(`zero.svg: missing canonical geometry ${expected}`);
+      }
+    }
+    if (/<(?:circle|ellipse)\b/.test(zero)) {
+      issues.push("zero.svg: legacy symmetric ring foreground remains");
+    }
   }
 
   const awake = readRequiredFile(iconDir, "zero-awake.svg", issues);
   const awakeActive = readRequiredFile(iconDir, "zero-awake-active.svg", issues);
   if (awake && awakeActive) {
-    const withoutStateMark = awakeActive.replace(/\s*<path d="M6\.5 14h7"\/>/, "");
+    for (const source of [awake, awakeActive]) {
+      if (/M10 7c-2-2 2-2 0-5/.test(source)) {
+        issues.push("zero-awake.svg: legacy steam geometry remains");
+      }
+      for (const expected of [
+        '<path d="M4 6h12v7a6 6 0 0 1-12 0V6Z"/>',
+        '<path d="M16 8h1.5a3 3 0 0 1 0 6H16"/>',
+        '<path d="M3 20h17"/>',
+      ]) {
+        if (!source.includes(expected)) {
+          issues.push(`zero-awake.svg: missing canonical geometry ${expected}`);
+        }
+      }
+    }
+    const withoutStateMark = awakeActive.replace(/\s*<path d="M6\.5 10h7"\/>/, "");
     if (normalizeSvg(withoutStateMark) !== normalizeSvg(awake)) {
       issues.push("zero-awake-active.svg: base geometry differs from zero-awake.svg");
+    }
+  }
+
+  const launch = readRequiredFile(iconDir, "zero-launch.svg", issues);
+  if (launch) {
+    for (const expected of [
+      '<path d="M14 5c2.5-1.5 4.5-1.5 6-1-.5 4-2.5 7.5-6 10.5L9.5 10C11 8 12.5 6.5 14 5Z"/>',
+      '<path d="M10 10H6l-2 4 6 1"/>',
+      '<path d="M14 14v4l-4 2-1-6"/>',
+      '<path d="m9 16-4 4"/>',
+    ]) {
+      if (!launch.includes(expected)) {
+        issues.push(`zero-launch.svg: missing canonical rocket geometry ${expected}`);
+      }
+    }
+    if (/m5 6 6 6-6 6|M13\.5 18H19/.test(launch)) {
+      issues.push("zero-launch.svg: legacy terminal prompt geometry remains");
     }
   }
 
@@ -168,8 +209,8 @@ export function validateIconSystem(root = PROJECT_ROOT) {
     }
     for (const expected of [
       '<rect x="32" y="32" width="448" height="448" rx="104" fill="#111318"/>',
-      '<circle cx="256" cy="256" r="144"/>',
-      '<path d="M142 370 370 142"/>',
+      '<path d="M12 2.1C9 2.1 6.48 5.29 5.04 9.14C2.64 15.41 5.28 21.24 12 21.9C18.72 21.24 21.36 15.41 18.96 9.14C17.52 5.29 15 2.1 12 2.1ZM8.54 17.34L17.34 8.54A1.32 1.32 0 0 0 15.46 6.66L6.66 15.46A1.32 1.32 0 0 0 8.54 17.34Z"',
+      'fill="#FFFFFF" fill-rule="evenodd" transform="translate(50 50) scale(17.1666667)"',
     ]) {
       if (!appIcon.includes(expected)) {
         issues.push(`${APP_ICON_FILE}: missing canonical geometry ${expected}`);

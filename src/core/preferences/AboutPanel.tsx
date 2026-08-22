@@ -1,6 +1,7 @@
 import type { PluginMeta } from "../pluginHost/pluginTypes";
 import type { PluginHostSummary } from "../pluginHost/pluginHostModel";
 import type { TranslationKey } from "./i18n";
+import { StatusBarGlyph } from "../../components/StatusBarGlyph";
 
 interface AboutPanelProps {
   plugins: PluginMeta[];
@@ -19,7 +20,9 @@ export function AboutPanel({ plugins, summary, t }: AboutPanelProps) {
         <span className="status-pill">v0.1.0</span>
       </div>
 
-      <div className="about-mark">Z</div>
+      <div className="about-mark">
+        <StatusBarGlyph icon="zero" />
+      </div>
 
       <div className="panel-copy">
         <strong>{t("about.descriptionTitle")}</strong>

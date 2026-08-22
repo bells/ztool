@@ -5,6 +5,8 @@
      stroke-width="2"
      stroke-linecap="round"
      stroke-linejoin="round">
-  <path d="m5 6 6 6-6 6"/>
-  <path d="M13.5 18H19"/>
+  <path d="M14 5c2.5-1.5 4.5-1.5 6-1-.5 4-2.5 7.5-6 10.5L9.5 10C11 8 12.5 6.5 14 5Z"/>
+  <path d="M10 10H6l-2 4 6 1"/>
+  <path d="M14 14v4l-4 2-1-6"/>
+  <path d="m9 16-4 4"/>
 </svg>

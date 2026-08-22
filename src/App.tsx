@@ -428,7 +428,9 @@ export function MainWindowApp() {
     <main className="app-shell main-window-shell">
       <header className="main-window-header" data-tauri-drag-region>
         <div className="main-window-title">
-          <span className="app-mark">Z</span>
+          <span className="app-mark">
+            <StatusBarGlyph icon="zero" />
+          </span>
           <div>
             <h1>{t("shell.mainTitle")}</h1>
             <p>{t("shell.mainSubtitle")}</p>

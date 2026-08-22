@@ -1176,6 +1176,68 @@ mod tests {
 
     use super::*;
 
+    fn decoded_status_bar_icon(icon: &StatusBarIconId) -> image::RgbaImage {
+        image::load_from_memory(status_bar_icon_png_bytes(icon))
+            .expect("status bar icon should decode")
+            .to_rgba8()
+    }
+
+    fn alpha_bounds(image: &image::RgbaImage) -> (u32, u32, u32, u32) {
+        let mut left = image.width();
+        let mut top = image.height();
+        let mut right = 0;
+        let mut bottom = 0;
+
+        for (x, y, pixel) in image.enumerate_pixels() {
+            if pixel[3] == 0 {
+                continue;
+            }
+            left = left.min(x);
+            top = top.min(y);
+            right = right.max(x);
+            bottom = bottom.max(y);
+        }
+
+        assert!(
+            left <= right && top <= bottom,
+            "icon must contain visible pixels"
+        );
+        (left, top, right, bottom)
+    }
+
+    #[test]
+    fn canonical_status_bar_assets_are_monochrome_transparent_rgba() {
+        for icon in [
+            StatusBarIconId::Zero,
+            StatusBarIconId::Launch,
+            StatusBarIconId::CaffeineEmpty,
+            StatusBarIconId::CaffeineFull,
+            StatusBarIconId::Screenshot,
+            StatusBarIconId::Paper,
+            StatusBarIconId::Extension,
+        ] {
+            let image = decoded_status_bar_icon(&icon);
+            assert_eq!(image.dimensions(), (18, 18));
+            assert!(image.pixels().any(|pixel| pixel[3] == 0));
+            assert!(image.pixels().any(|pixel| pixel[3] > 0));
+            assert!(
+                image
+                    .pixels()
+                    .filter(|pixel| pixel[3] > 0)
+                    .all(|pixel| pixel[0] == pixel[1] && pixel[1] == pixel[2]),
+                "{icon:?} must stay monochrome for macOS Template Image rendering",
+            );
+        }
+    }
+
+    #[test]
+    fn awake_state_derivatives_keep_identical_alpha_bounds() {
+        let base = decoded_status_bar_icon(&StatusBarIconId::CaffeineEmpty);
+        let active = decoded_status_bar_icon(&StatusBarIconId::CaffeineFull);
+
+        assert_eq!(alpha_bounds(&base), alpha_bounds(&active));
+    }
+
     #[test]
     fn grouped_primary_anchor_uses_the_rightmost_cell() {
         let rect = tauri::Rect {

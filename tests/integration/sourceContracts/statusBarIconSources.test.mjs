@@ -45,3 +45,21 @@ test("CSS masks inherit their surface foreground in light and dark themes", () =
     /\.status-bar-glyph-mask\s*\{[^}]*background-color:\s*currentColor;/s,
   );
 });
+
+test("main window and About reuse the canonical Zero mask without text marks", () => {
+  const app = fs.readFileSync("src/App.tsx", "utf8");
+  const about = fs.readFileSync("src/core/preferences/AboutPanel.tsx", "utf8");
+
+  assert.match(
+    app,
+    /<span className="app-mark">\s*<StatusBarGlyph icon="zero" \/>\s*<\/span>/,
+  );
+  assert.match(
+    about,
+    /<div className="about-mark">\s*<StatusBarGlyph icon="zero" \/>\s*<\/div>/,
+  );
+  assert.doesNotMatch(app, /<span className="app-mark">Z<\/span>/);
+  assert.doesNotMatch(about, /<div className="about-mark">Z<\/div>/);
+  assert.doesNotMatch(app, /<ellipse\b|<path\b/);
+  assert.doesNotMatch(about, /<ellipse\b|<path\b/);
+});
