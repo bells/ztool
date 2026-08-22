@@ -215,7 +215,7 @@ fn registry_state_persists_across_reloads() {
         .find(|record| record.name == "zero.awake")
         .expect("caffeine record");
 
-    assert_eq!(caffeine.enabled, false);
+    assert!(!caffeine.enabled);
 }
 
 #[test]

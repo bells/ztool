@@ -46,10 +46,9 @@ test("keeps icon-only controls localized, stateful, and keyboard ordered", () =>
 });
 
 test("crops commits to the real screenshot selection and anchors the toolbar to it", () => {
-  assert.match(
-    captureSource,
-    /cropCanvasToPngDataUrl\(renderCurrentFinalCanvas\(\), selection\)/,
-  );
+  assert.match(captureSource, /cropCanvasToPngBytes\(sourceCanvas, bounds\)/);
+  assert.match(captureSource, /uploadSelection\(action, selection\)/);
+  assert.match(captureSource, /releaseCanvas\(sourceCanvas\)/);
   assert.match(captureSource, /imageBoundsToViewportBounds\(/);
   assert.match(captureSource, /resolveCaptureToolbarPosition\(/);
   assert.doesNotMatch(captureSource, /annotationBounds\(/);

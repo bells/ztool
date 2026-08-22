@@ -83,6 +83,19 @@ export function nextBingWallpaperReloadVersion(current: number) {
   return current + 1;
 }
 
+export function shouldStartBingWallpaperPresentation(
+  activity: "active" | "hidden" | "disposed",
+) {
+  return activity === "active";
+}
+
+export function previewBytesMatchDescriptor(
+  actualByteLength: number,
+  expectedByteLength: number,
+) {
+  return actualByteLength > 0 && actualByteLength === expectedByteLength;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

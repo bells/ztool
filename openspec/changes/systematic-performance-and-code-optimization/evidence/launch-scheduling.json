@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-08-22T08:25:39.718Z",
+  "fixture": {
+    "samples": 30,
+    "keystrokesPerSample": 6
+  },
+  "frontendQueryCount": 180,
+  "searchIpcCount": 30,
+  "supersededQueryCount": 150,
+  "maxSearchConcurrency": 1,
+  "schedulingLatencyMicros": {
+    "raw": [
+      86.79200000000087,
+      8.832999999999203,
+      3.2920000000000726,
+      2.5839999999988095,
+      2.957999999999572,
+      2.7089999999994063,
+      10.374999999999801,
+      5.4160000000003095,
+      2.292000000000627,
+      3.4589999999994347,
+      3.875000000000739,
+      1.666999999999419,
+      1.37499999999946,
+      2.4999999999995026,
+      1.4579999999995152,
+      1.4170000000000016,
+      2.4999999999995026,
+      1.41600000000075,
+      1.3339999999999463,
+      1.3750000000012363,
+      1.4170000000000016,
+      1.3330000000006947,
+      1.3750000000012363,
+      1.3330000000006947,
+      7.874999999998522,
+      1.5000000000000568,
+      1.4589999999987668,
+      1.4170000000000016,
+      1.4590000000005432,
+      1.708000000000709
+    ],
+    "p50": 1.666999999999419,
+    "p95": 10.374999999999801
+  },
+  "structuralCounters": {
+    "indexCloneBytesPerQuery": 0,
+    "runningProbeCountPerQuery": 0,
+    "iconBatchRequestsPerVisibleResultSet": 1,
+    "maxNativeIconLoadConcurrency": 1,
+    "reactIconCommitsPerCompletedBatch": 1
+  },
+  "note": "Deterministic scheduler/contract evidence; this is not real Tauri IPC or WebView latency."
+}

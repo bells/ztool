@@ -52,6 +52,7 @@ pub trait FileConversionProvider: Send + Sync {
     fn id(&self) -> FileConversionProviderId;
     fn supported_directions(&self) -> &[FileConversionDirection];
     fn probe(&self) -> FileConversionProviderSnapshot;
+    fn invalidate(&self) {}
     fn convert(
         &self,
         request: &ProviderConversionRequest,
@@ -133,6 +134,12 @@ impl FileConversionProviderRegistry {
             .iter()
             .map(|provider| provider.probe())
             .collect()
+    }
+
+    pub fn invalidate(&self) {
+        for provider in &self.providers {
+            provider.invalidate();
+        }
     }
 }
 

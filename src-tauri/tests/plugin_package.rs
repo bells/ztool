@@ -166,7 +166,7 @@ fn package_validation_accepts_valid_zplugin_zip() {
 
     let report = validate_zplugin_package(&package).expect("package should validate");
 
-    assert_eq!(report.valid, true);
+    assert!(report.valid);
     assert_eq!(report.manifest.expect("manifest").name, "package-tool");
     assert!(report.sha256.len() == 64);
 }
@@ -227,7 +227,7 @@ fn package_validation_rejects_missing_manifest_main_asset() {
 
     let report = validate_zplugin_package(&package).expect("validation report should return");
 
-    assert_eq!(report.valid, false);
+    assert!(!report.valid);
     assert!(report
         .issues
         .iter()
@@ -247,7 +247,7 @@ fn package_validation_rejects_unsafe_archive_entries() {
 
     let report = validate_zplugin_package(&package).expect("validation report should return");
 
-    assert_eq!(report.valid, false);
+    assert!(!report.valid);
     assert!(report
         .issues
         .iter()

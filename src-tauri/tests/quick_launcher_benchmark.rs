@@ -9,7 +9,7 @@ use zero_lib::services::quick_launcher::model::{
     stable_item_id, IndexedItem, LaunchTarget, UsageMap,
 };
 use zero_lib::services::quick_launcher::search::{
-    build_search_fields, bundled_aliases, default_matcher, search_items,
+    build_search_fields, bundled_aliases, default_matcher, search_items, search_items_thread_local,
 };
 
 const FIXTURE_SIZE: usize = 10_000;
@@ -50,6 +50,7 @@ fn compare_matchers_on_mixed_language_fixture() {
     }
 
     let mut nucleo_samples = Vec::new();
+    let mut thread_local_samples = Vec::new();
     let mut skim_samples = Vec::new();
     for index in 0..80 {
         let query = SAMPLE_QUERIES[index % SAMPLE_QUERIES.len()];
@@ -66,6 +67,20 @@ fn compare_matchers_on_mixed_language_fixture() {
         )
         .unwrap();
         nucleo_samples.push(started.elapsed());
+
+        let started = Instant::now();
+        let _ = search_items_thread_local(
+            1,
+            &items,
+            &usage,
+            &std::collections::HashMap::new(),
+            QuickLauncherSearchInput {
+                query: query.into(),
+                limit: Some(24),
+            },
+        )
+        .unwrap();
+        thread_local_samples.push(started.elapsed());
 
         let started = Instant::now();
         let mut scores = items
@@ -87,18 +102,26 @@ fn compare_matchers_on_mixed_language_fixture() {
 
     let nucleo_p50 = percentile(&mut nucleo_samples, 50);
     let nucleo_p95 = percentile(&mut nucleo_samples, 95);
+    let thread_local_p50 = percentile(&mut thread_local_samples, 50);
+    let thread_local_p95 = percentile(&mut thread_local_samples, 95);
     let skim_p50 = percentile(&mut skim_samples, 50);
     let skim_p95 = percentile(&mut skim_samples, 95);
     eprintln!(
-        "quick-launcher-benchmark fixture={FIXTURE_SIZE} nucleo_p50_us={} nucleo_p95_us={} fuzzy_matcher_p50_us={} fuzzy_matcher_p95_us={}",
+        "quick-launcher-benchmark fixture={FIXTURE_SIZE} nucleo_p50_us={} nucleo_p95_us={} thread_local_p50_us={} thread_local_p95_us={} fuzzy_matcher_p50_us={} fuzzy_matcher_p95_us={} index_clone_bytes=0 running_probe_count=0",
         nucleo_p50.as_micros(),
         nucleo_p95.as_micros(),
+        thread_local_p50.as_micros(),
+        thread_local_p95.as_micros(),
         skim_p50.as_micros(),
         skim_p95.as_micros(),
     );
     assert!(
         nucleo_p95 < Duration::from_millis(5),
         "nucleo pure matching p95 must remain below 5ms; measured {nucleo_p95:?}"
+    );
+    assert!(
+        thread_local_p95 < Duration::from_millis(5),
+        "thread-local production matching p95 must remain below 5ms; measured {thread_local_p95:?}"
     );
 }
 

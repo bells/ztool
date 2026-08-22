@@ -21,7 +21,7 @@ function pluginModule(id, contributionId = `${id}.main`) {
       "zh-CN": { title: id, subtitle: id },
       "en-US": { title: id, subtitle: id },
     },
-    renderPanel: () => null,
+    loadPanel: async () => ({ default: () => null }),
   };
 }
 
@@ -62,6 +62,10 @@ test("rejects invalid manifests and incomplete presentation metadata", () => {
   );
   assert.throws(
     () => createBundledPluginRegistry([{ ...pluginModule("tool.one"), kind: "" }]),
+    /missing presentation metadata/,
+  );
+  assert.throws(
+    () => createBundledPluginRegistry([{ ...pluginModule("tool.one"), loadPanel: null }]),
     /missing presentation metadata/,
   );
 });

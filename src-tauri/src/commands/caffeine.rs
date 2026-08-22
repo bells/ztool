@@ -11,20 +11,23 @@ pub fn get_caffeine_state(
 }
 
 #[tauri::command]
-pub fn toggle_keep_awake(
+pub async fn toggle_keep_awake(
     app: tauri::AppHandle,
-    state: tauri::State<'_, CaffeineState>,
     enabled: bool,
     duration_minutes: Option<u64>,
 ) -> Result<CaffeineSnapshot, String> {
-    let transition = state.set_enabled(enabled, duration_minutes)?;
-
-    if let Some(expiry) = transition.expiry {
-        schedule_expiry(app.clone(), expiry);
-    }
-    let _ = crate::services::status_bar::refresh_status_bar(&app);
-
-    Ok(transition.snapshot)
+    tauri::async_runtime::spawn_blocking(move || {
+        let transition = app
+            .state::<CaffeineState>()
+            .set_enabled(enabled, duration_minutes)?;
+        if let Some(expiry) = transition.expiry {
+            schedule_expiry(app.clone(), expiry);
+        }
+        let _ = crate::services::status_bar::refresh_status_bar(&app);
+        Ok(transition.snapshot)
+    })
+    .await
+    .map_err(|_| "防休眠状态任务异常结束".to_string())?
 }
 
 pub fn schedule_expiry(app: tauri::AppHandle, expiry: CaffeineExpiry) {

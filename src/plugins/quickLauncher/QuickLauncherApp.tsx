@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { resolveLanguage } from "../../core/preferences/i18n";
+import { useSurfaceActivity } from "../../core/windowing/useSurfaceActivity";
 import { createQuickLauncherTranslator } from "./i18n";
 import { QuickLauncherView } from "./QuickLauncherView";
 import { shouldDismissLauncher } from "./quickLauncherModel";
@@ -10,6 +10,7 @@ import { useQuickLauncher } from "./useQuickLauncher";
 
 export default function QuickLauncherApp() {
   const controller = useQuickLauncher();
+  const surfaceActivity = useSurfaceActivity();
   const [focusEpoch, setFocusEpoch] = useState(0);
   const t = createQuickLauncherTranslator(
     resolveLanguage("system", navigator.language),
@@ -19,17 +20,18 @@ export default function QuickLauncherApp() {
   }, []);
 
   useEffect(() => {
-    let unlistenShown: (() => void) | null = null;
+    if (surfaceActivity !== "active") return;
+    controller.resetTransient();
+    setFocusEpoch((value) => value + 1);
+  }, [controller.resetTransient, surfaceActivity]);
+
+  useEffect(() => {
+    if (surfaceActivity !== "active") return;
+
     let unlistenFocus: (() => void) | null = null;
     let blurDismissTimer: ReturnType<typeof setTimeout> | null = null;
     let disposed = false;
     const launcherWindow = getCurrentWindow();
-    listen("quick-launcher-shown", () => {
-      controller.resetTransient();
-      setFocusEpoch((value) => value + 1);
-    }).then((unlisten) => {
-      if (disposed) unlisten(); else unlistenShown = unlisten;
-    });
     launcherWindow.onFocusChanged(({ payload: focused }) => {
       if (focused && blurDismissTimer !== null) {
         clearTimeout(blurDismissTimer);
@@ -50,10 +52,9 @@ export default function QuickLauncherApp() {
     return () => {
       disposed = true;
       if (blurDismissTimer !== null) clearTimeout(blurDismissTimer);
-      unlistenShown?.();
       unlistenFocus?.();
     };
-  }, [controller.activatingId, controller.resetTransient, hide]);
+  }, [controller.activatingId, hide, surfaceActivity]);
 
   return (
     <main className="quick-launcher-window">

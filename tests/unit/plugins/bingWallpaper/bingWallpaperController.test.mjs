@@ -6,6 +6,8 @@ import {
   errorMessage,
   loadBingWallpaperCacheFirst,
   nextBingWallpaperReloadVersion,
+  previewBytesMatchDescriptor,
+  shouldStartBingWallpaperPresentation,
 } from "/private/tmp/zero-tests/plugins/bingWallpaper/bingWallpaperController.js";
 
 function snapshot(stale = false, error) {
@@ -117,6 +119,15 @@ test("action gate prevents duplicate and overlapping apply/save operations", () 
 test("retry versions advance monotonically", () => {
   assert.equal(nextBingWallpaperReloadVersion(0), 1);
   assert.equal(nextBingWallpaperReloadVersion(7), 8);
+});
+
+test("hidden Paper surfaces do not start presentation and preview bytes must match descriptors", () => {
+  assert.equal(shouldStartBingWallpaperPresentation("active"), true);
+  assert.equal(shouldStartBingWallpaperPresentation("hidden"), false);
+  assert.equal(shouldStartBingWallpaperPresentation("disposed"), false);
+  assert.equal(previewBytesMatchDescriptor(1024, 1024), true);
+  assert.equal(previewBytesMatchDescriptor(0, 0), false);
+  assert.equal(previewBytesMatchDescriptor(1023, 1024), false);
 });
 
 test("selection replacement accepts only the newest preview completion", async () => {

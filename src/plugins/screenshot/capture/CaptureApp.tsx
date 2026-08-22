@@ -33,8 +33,11 @@ import {
   normalizeRect,
 } from "./captureCanvas";
 import {
-  cropCanvasToPngDataUrl,
-  loadImageFromBase64,
+  cropCanvasToPngBytes,
+  loadImageFromObjectUrl,
+  releaseCanvas,
+  releaseDecodedImage,
+  releaseObjectUrl,
   renderFinalCanvas,
 } from "./captureExport";
 import { resolveCaptureHotkey } from "./captureHotkeys";
@@ -49,14 +52,22 @@ import {
   type Size,
 } from "./captureSelectionModel";
 import {
-  buildCommitScreenshotPayload,
-  buildPinScreenshotPayload,
+  buildPrepareScreenshotCommitPayload,
+  buildScreenshotUploadOptions,
 } from "./captureSerialize";
 import {
   resolveCaptureToolbarPosition,
   type CaptureToolbarPosition,
 } from "./captureToolbarModel";
-import type { AnnotationObject, CaptureSession, CaptureTool, Point } from "./captureTypes";
+import type {
+  AnnotationObject,
+  CaptureSession,
+  CaptureTool,
+  Point,
+  ScreenshotCommitResult,
+  ScreenshotError,
+  ScreenshotUploadLease,
+} from "./captureTypes";
 import { resolveLanguage } from "../../../core/preferences/i18n";
 import { normalizePreferences } from "../../../core/preferences/preferencesModel";
 import { readStoredPreferences } from "../../../core/preferences/preferencesStorage";
@@ -96,10 +107,14 @@ const TEXT_INPUT_WIDTH = 220;
 const TEXT_INPUT_HEIGHT = 96;
 const TEXT_FONT_SIZE = 24;
 
-function toImageSrc(imageBase64: string): string {
-  return imageBase64.startsWith("data:")
-    ? imageBase64
-    : `data:image/png;base64,${imageBase64}`;
+function screenshotErrorMessage(error: unknown): string {
+  if (typeof error === "object" && error !== null && "message" in error) {
+    const message = (error as ScreenshotError).message;
+    if (typeof message === "string") {
+      return message;
+    }
+  }
+  return String(error);
 }
 
 export function CaptureApp() {
@@ -135,15 +150,59 @@ export function CaptureApp() {
   const toolbarRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
-    invoke<CaptureSession>("init_screenshot_session", {})
-      .then(async (payload) => {
-        const src = toImageSrc(payload.image_base64);
+    let disposed = false;
+    let objectUrl: string | null = null;
+    let decodedImage: HTMLImageElement | null = null;
+    let receivedBytes: Uint8Array | null = null;
+
+    void (async () => {
+      try {
+        const payload = await invoke<CaptureSession>("init_screenshot_session", {});
+        const value = await invoke<ArrayBuffer>("read_screenshot_media", {
+          input: { token: payload.media.token },
+        });
+        receivedBytes = new Uint8Array(value);
+        if (
+          receivedBytes.byteLength === 0 ||
+          receivedBytes.byteLength !== payload.media.byteLength
+        ) {
+          throw new Error("The screenshot resource size does not match its descriptor");
+        }
+        objectUrl = URL.createObjectURL(new Blob([value], { type: payload.media.mimeType }));
+        decodedImage = await loadImageFromObjectUrl(objectUrl);
+        if (disposed) {
+          releaseDecodedImage(decodedImage);
+          decodedImage = null;
+          objectUrl = releaseObjectUrl(objectUrl);
+          return;
+        }
         setSession(payload);
-        setSelection(createFullImageSelection({ width: payload.width, height: payload.height }));
-        setImageSrc(src);
-        setBaseImage(await loadImageFromBase64(src));
-      })
-      .catch((err) => setError(String(err)));
+        setSelection(
+          createFullImageSelection({
+            width: payload.media.width,
+            height: payload.media.height,
+          }),
+        );
+        setImageSrc(objectUrl);
+        setBaseImage(decodedImage);
+      } catch (error) {
+        releaseDecodedImage(decodedImage);
+        decodedImage = null;
+        objectUrl = releaseObjectUrl(objectUrl);
+        if (!disposed) {
+          setError(screenshotErrorMessage(error));
+        }
+      } finally {
+        receivedBytes?.fill(0);
+        receivedBytes = null;
+      }
+    })();
+
+    return () => {
+      disposed = true;
+      releaseDecodedImage(decodedImage);
+      objectUrl = releaseObjectUrl(objectUrl);
+    };
   }, []);
 
   useLayoutEffect(() => {
@@ -195,7 +254,7 @@ export function CaptureApp() {
     }
     return imageBoundsToViewportBounds(
       activeSelection,
-      { width: session.width, height: session.height },
+      { width: session.media.width, height: session.media.height },
       viewportSize,
     );
   }, [activeSelection, session, viewportSize]);
@@ -213,16 +272,16 @@ export function CaptureApp() {
     }
 
     const overlay = overlayRef.current;
-    overlay.width = session.width;
-    overlay.height = session.height;
+    overlay.width = session.media.width;
+    overlay.height = session.media.height;
     const ctx = overlay.getContext("2d");
     if (!ctx) {
       return;
     }
 
-    ctx.clearRect(0, 0, session.width, session.height);
+    ctx.clearRect(0, 0, session.media.width, session.media.height);
     if (baseImage) {
-      ctx.drawImage(baseImage, 0, 0, session.width, session.height);
+      ctx.drawImage(baseImage, 0, 0, session.media.width, session.media.height);
     }
     drawAnnotations(ctx, draft ? [...history.annotations, draft] : history.annotations);
   }, [baseImage, draft, history.annotations, session]);
@@ -236,7 +295,7 @@ export function CaptureApp() {
       const rect = imageRef.current.getBoundingClientRect();
       return viewportPointToImagePoint(
         { x: event.clientX - rect.left, y: event.clientY - rect.top },
-        { width: session.width, height: session.height },
+        { width: session.media.width, height: session.media.height },
         { width: rect.width, height: rect.height },
       );
     },
@@ -258,28 +317,60 @@ export function CaptureApp() {
       throw new Error("Capture session is not ready");
     }
 
-    return renderFinalCanvas(baseImage, session.width, session.height, history.annotations);
+    return renderFinalCanvas(
+      baseImage,
+      session.media.width,
+      session.media.height,
+      history.annotations,
+    );
   }, [baseImage, history.annotations, session]);
 
-  const commitPin = useCallback(
-    async (bounds: Bounds) => {
+  const uploadSelection = useCallback(
+    async (
+      action: "copy" | "save" | "pin",
+      bounds: Bounds,
+    ): Promise<ScreenshotCommitResult> => {
       if (!session) {
-        return;
+        throw new Error("Capture session is not ready");
       }
-
-      setError(null);
+      const lease = await invoke<ScreenshotUploadLease>(
+        "prepare_screenshot_commit",
+        buildPrepareScreenshotCommitPayload(session.sessionId, action),
+      );
+      let sourceCanvas: HTMLCanvasElement | null = null;
+      let pngBytes: Uint8Array | null = null;
       try {
-        const pngBase64 = cropCanvasToPngDataUrl(renderCurrentFinalCanvas(), bounds);
-        if (!pngBase64) {
-          return;
+        sourceCanvas = renderCurrentFinalCanvas();
+        pngBytes = await cropCanvasToPngBytes(sourceCanvas, bounds);
+        if (!pngBytes) {
+          throw new Error("Screenshot selection is outside the captured image");
         }
-
-        await invoke("pin_screenshot", buildPinScreenshotPayload(session.session_id, pngBase64));
-      } catch (err) {
-        setError(String(err));
+        if (pngBytes.byteLength === 0 || pngBytes.byteLength > lease.maxBytes) {
+          throw new Error("Screenshot PNG exceeds the approved upload size");
+        }
+        return await invoke<ScreenshotCommitResult>(
+          "upload_screenshot_commit",
+          pngBytes,
+          buildScreenshotUploadOptions(lease),
+        );
+      } finally {
+        pngBytes?.fill(0);
+        releaseCanvas(sourceCanvas);
       }
     },
     [renderCurrentFinalCanvas, session],
+  );
+
+  const commitPin = useCallback(
+    async (bounds: Bounds) => {
+      setError(null);
+      try {
+        await uploadSelection("pin", bounds);
+      } catch (error) {
+        setError(screenshotErrorMessage(error));
+      }
+    },
+    [uploadSelection],
   );
 
   const commit = useCallback(
@@ -291,25 +382,14 @@ export function CaptureApp() {
       setIsCommitting(true);
       setError(null);
       try {
-        const pngBase64 = cropCanvasToPngDataUrl(renderCurrentFinalCanvas(), selection);
-        if (!pngBase64) {
-          throw new Error("Screenshot selection is outside the captured image");
-        }
-        await invoke(
-          "commit_screenshot",
-          buildCommitScreenshotPayload({
-            sessionId: session.session_id,
-            action,
-            pngBase64,
-          }),
-        );
-      } catch (err) {
-        setError(String(err));
+        await uploadSelection(action, selection);
+      } catch (error) {
+        setError(screenshotErrorMessage(error));
       } finally {
         setIsCommitting(false);
       }
     },
-    [renderCurrentFinalCanvas, selection, session],
+    [selection, session, uploadSelection],
   );
 
   const cancel = useCallback(() => {
@@ -329,8 +409,8 @@ export function CaptureApp() {
       return;
     }
 
-    invoke("cancel_screenshot_session", { sessionId: session.session_id }).catch((err) =>
-      setError(String(err)),
+    invoke("cancel_screenshot_session", { sessionId: session.sessionId }).catch((error) =>
+      setError(screenshotErrorMessage(error)),
     );
   }, [draft, selectionDraft, session, textDraft, updateTextDraft]);
 
@@ -499,7 +579,7 @@ export function CaptureApp() {
         previousSelection,
         selectionStart,
         point,
-        { width: session.width, height: session.height },
+        { width: session.media.width, height: session.media.height },
       );
       setSelectionDraft(nextSelection === previousSelection ? null : nextSelection);
       return;
@@ -523,7 +603,7 @@ export function CaptureApp() {
             previousSelection,
             selectionStart,
             point,
-            { width: session.width, height: session.height },
+            { width: session.media.width, height: session.media.height },
           )
         : previousSelection;
       setSelection(nextSelection);

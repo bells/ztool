@@ -23,12 +23,11 @@ pub async fn fetch_https(
     allowed_hosts: &[&str],
     max_bytes: usize,
 ) -> Result<NetworkFetchResponse, NativeResourceError> {
-    if request
+    if !request
         .method
         .as_deref()
         .unwrap_or("GET")
-        .to_ascii_uppercase()
-        != "GET"
+        .eq_ignore_ascii_case("GET")
     {
         return Err(resource_error(
             "network.fetch",

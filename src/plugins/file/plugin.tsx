@@ -1,6 +1,5 @@
 import { FIRST_PARTY_PLUGIN_IDS } from "../../brand/identity";
 import type { BundledPluginModule } from "../../core/pluginHost/pluginModule";
-import { FilePanel } from "./FilePanel";
 import { createFileTranslator, fileMessages } from "./i18n";
 
 export const filePlugin: BundledPluginModule = {
@@ -31,7 +30,7 @@ export const filePlugin: BundledPluginModule = {
       subtitle: fileMessages["en-US"]["plugin.subtitle"],
     },
   },
-  renderPanel(language) {
-    return <FilePanel t={createFileTranslator(language)} />;
-  },
+  loadPanel: () => import("./FilePanel").then(({ FilePanel }) => ({
+    default: ({ language }) => <FilePanel t={createFileTranslator(language)} />,
+  })),
 };

@@ -45,7 +45,7 @@ pub fn scan() -> ScanResult {
         }
     }
     let mut items = by_identity.into_values().collect::<Vec<_>>();
-    items.sort_by(|left, right| left.title.to_lowercase().cmp(&right.title.to_lowercase()));
+    items.sort_by_key(|item| item.title.to_lowercase());
     ScanResult { items, diagnostics }
 }
 

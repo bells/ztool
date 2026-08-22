@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -30,6 +31,32 @@ use super::validation::inspect_source;
 pub const FILE_CONVERSION_JOB_UPDATED_EVENT: &str = "zero://file-conversion/job-updated";
 const MAX_ENQUEUE_ITEMS: usize = 100;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileCapabilityInvalidationCause {
+    EngineInstalled,
+    EngineUpgraded,
+    EngineRepaired,
+    EngineRemoved,
+    NativeProviderChanged,
+    LifecycleReset,
+}
+
+struct CapabilityCacheState {
+    generation: u64,
+    snapshot: Option<FileConversionCapabilitySnapshot>,
+    last_invalidation: Option<FileCapabilityInvalidationCause>,
+}
+
+impl Default for CapabilityCacheState {
+    fn default() -> Self {
+        Self {
+            generation: 1,
+            snapshot: None,
+            last_invalidation: None,
+        }
+    }
+}
+
 #[derive(Default)]
 struct RuntimeState {
     queue: FileConversionQueue,
@@ -42,26 +69,29 @@ struct RuntimeState {
 
 pub struct FileConversionState {
     runtime: Mutex<RuntimeState>,
-    providers: Mutex<Arc<FileConversionProviderRegistry>>,
+    enqueue_gate: Mutex<()>,
+    providers: Mutex<Option<Arc<FileConversionProviderRegistry>>>,
+    capability_cache: Mutex<CapabilityCacheState>,
+    provider_initializations: AtomicU64,
+    capability_refreshes: AtomicU64,
 }
 
 impl Default for FileConversionState {
     fn default() -> Self {
         Self {
             runtime: Mutex::new(RuntimeState::default()),
-            providers: Mutex::new(Arc::new(default_provider_registry(
-                None,
-                Arc::new(FileEngineBridge::default()),
-            ))),
+            enqueue_gate: Mutex::new(()),
+            providers: Mutex::new(None),
+            capability_cache: Mutex::new(CapabilityCacheState::default()),
+            provider_initializations: AtomicU64::new(0),
+            capability_refreshes: AtomicU64::new(0),
         }
     }
 }
 
 impl FileConversionState {
     pub fn initialize(&self, temp_root: PathBuf) -> Result<(), FileConversionError> {
-        cleanup_stale_job_directories(&temp_root)?;
-        self.lock_runtime()?.temp_root = Some(temp_root);
-        Ok(())
+        self.initialize_registry(None, Arc::new(FileEngineBridge::default()), temp_root)
     }
 
     pub fn initialize_with_engine(
@@ -70,27 +100,89 @@ impl FileConversionState {
         bridge: Arc<FileEngineBridge>,
         temp_root: PathBuf,
     ) -> Result<(), FileConversionError> {
-        self.initialize(temp_root)?;
-        *self
+        self.initialize_registry(Some(app), bridge, temp_root)
+    }
+
+    fn initialize_registry(
+        &self,
+        app: Option<tauri::AppHandle>,
+        bridge: Arc<FileEngineBridge>,
+        temp_root: PathBuf,
+    ) -> Result<(), FileConversionError> {
+        let mut providers = self
             .providers
             .lock()
-            .map_err(|_| runtime_error("The File provider registry is unavailable.", true))? =
-            Arc::new(default_provider_registry(Some(app), bridge));
+            .map_err(|_| runtime_error("The File provider registry is unavailable.", true))?;
+        if providers.is_some() {
+            return Ok(());
+        }
+        cleanup_stale_job_directories(&temp_root)?;
+        let registry = Arc::new(default_provider_registry(app, bridge));
+        self.lock_runtime()?.temp_root = Some(temp_root);
+        *providers = Some(registry);
+        self.provider_initializations
+            .fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
 
     pub fn capabilities(&self) -> FileConversionCapabilitySnapshot {
-        let providers = self
-            .providers
+        loop {
+            let generation = self.capability_generation();
+            if let Ok(cache) = self.capability_cache.lock() {
+                if cache.generation == generation {
+                    if let Some(snapshot) = &cache.snapshot {
+                        return snapshot.clone();
+                    }
+                }
+            }
+            let providers = self
+                .providers
+                .lock()
+                .ok()
+                .and_then(|providers| providers.as_ref().map(Arc::clone))
+                .unwrap_or_else(|| Arc::new(FileConversionProviderRegistry::new(Vec::new())));
+            let snapshot = capability_snapshot(&providers, ProviderPlatform::current(), now_ms());
+            let Ok(mut cache) = self.capability_cache.lock() else {
+                return snapshot;
+            };
+            if cache.generation != generation {
+                continue;
+            }
+            cache.snapshot = Some(snapshot.clone());
+            self.capability_refreshes.fetch_add(1, Ordering::Relaxed);
+            return snapshot;
+        }
+    }
+
+    pub fn invalidate_capabilities(&self, cause: FileCapabilityInvalidationCause) -> u64 {
+        if let Ok(providers) = self.providers.lock() {
+            if let Some(providers) = providers.as_ref() {
+                providers.invalidate();
+            }
+        }
+        let mut cache = match self.capability_cache.lock() {
+            Ok(cache) => cache,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        cache.generation = cache.generation.saturating_add(1);
+        cache.snapshot = None;
+        cache.last_invalidation = Some(cause);
+        cache.generation
+    }
+
+    pub fn capability_generation(&self) -> u64 {
+        self.capability_cache
             .lock()
-            .map(|providers| Arc::clone(&providers))
-            .unwrap_or_else(|_| {
-                Arc::new(default_provider_registry(
-                    None,
-                    Arc::new(FileEngineBridge::default()),
-                ))
-            });
-        capability_snapshot(&providers, ProviderPlatform::current(), now_ms())
+            .map(|cache| cache.generation)
+            .unwrap_or_default()
+    }
+
+    pub fn capability_refresh_count(&self) -> u64 {
+        self.capability_refreshes.load(Ordering::Relaxed)
+    }
+
+    pub fn provider_initialization_count(&self) -> u64 {
+        self.provider_initializations.load(Ordering::Relaxed)
     }
 
     pub fn inspect_paths(&self, source_paths: Vec<String>) -> Vec<FileConversionCandidate> {
@@ -127,9 +219,18 @@ impl FileConversionState {
                 diagnostic: None,
             });
         }
-        let mut runtime = self.lock_runtime()?;
-        let mut active_sources = runtime.queue.active_sources();
-        let mut jobs = Vec::new();
+        let _enqueue = self
+            .enqueue_gate
+            .lock()
+            .map_err(|_| runtime_error("The File enqueue coordinator is unavailable.", true))?;
+        let (mut active_sources, mut reserved_paths) = {
+            let runtime = self.lock_runtime()?;
+            (
+                runtime.queue.active_sources(),
+                runtime.reserved_paths.clone(),
+            )
+        };
+        let mut prepared = Vec::new();
         let mut rejected_candidates = Vec::new();
 
         for item in request.items {
@@ -146,7 +247,7 @@ impl FileConversionState {
                 &canonical_source,
                 direction,
                 item.output_directory.as_deref().map(Path::new),
-                &mut runtime.reserved_paths,
+                &mut reserved_paths,
             ) {
                 Ok(reservation) => reservation,
                 Err(error) => {
@@ -154,10 +255,16 @@ impl FileConversionState {
                     continue;
                 }
             };
+            active_sources.insert(canonical_source.clone());
+            prepared.push((candidate, canonical_source, direction, reservation));
+        }
+
+        let mut runtime = self.lock_runtime()?;
+        let mut jobs = Vec::new();
+        for (candidate, canonical_source, direction, reservation) in prepared {
             runtime.next_job_number += 1;
-            let job_id = format!("file-{}-{}", now_ms(), runtime.next_job_number);
             let draft = FileConversionJobDraft {
-                id: job_id,
+                id: format!("file-{}-{}", now_ms(), runtime.next_job_number),
                 canonical_source: canonical_source.clone(),
                 final_output: reservation.output_path.clone(),
                 source_name: candidate.source_name.clone(),
@@ -167,11 +274,10 @@ impl FileConversionState {
             };
             match runtime.queue.enqueue(draft, now_ms()) {
                 Ok(snapshot) => {
-                    active_sources.insert(canonical_source);
+                    runtime.reserved_paths.insert(reservation.output_path);
                     jobs.push(snapshot);
                 }
                 Err(error) => {
-                    runtime.reserved_paths.remove(&reservation.output_path);
                     rejected_candidates.push(rejected_from_candidate(candidate, error));
                 }
             }
@@ -331,6 +437,12 @@ pub async fn run_file_conversion_worker(app: tauri::AppHandle) {
             };
             let Some(job_id) = runtime.queue.active_job_id().map(str::to_string) else {
                 runtime.worker_running = false;
+                drop(runtime);
+                let bridge = Arc::clone(
+                    &app.state::<super::engine_bridge::FileEngineBridgeState>()
+                        .bridge,
+                );
+                bridge.schedule_idle_teardown(&app);
                 return;
             };
             let Some(record) = runtime.queue.record(&job_id).cloned() else {
@@ -370,7 +482,7 @@ async fn execute_active_job(
     }
 
     let providers = match state.providers.lock() {
-        Ok(providers) => Arc::clone(&providers),
+        Ok(providers) => providers.as_ref().map(Arc::clone),
         Err(_) => {
             finish_with_error(
                 app,
@@ -379,6 +491,14 @@ async fn execute_active_job(
             );
             return;
         }
+    };
+    let Some(providers) = providers else {
+        finish_with_error(
+            app,
+            &record.snapshot.id,
+            runtime_error("The File provider registry has not been initialized.", true),
+        );
+        return;
     };
     let provider = match providers.select(record.snapshot.direction, ProviderPlatform::current()) {
         Ok(provider) => provider,
@@ -641,6 +761,38 @@ mod tests {
     }
 
     #[test]
+    fn concurrent_enqueues_publish_unique_jobs_without_holding_runtime_during_inspection() {
+        let root = TestRoot::new();
+        let sources = [
+            root.0.join("first-race.pdf"),
+            root.0.join("second-race.pdf"),
+        ];
+        for source in &sources {
+            fs::write(source, b"%PDF-1.7\nfixture").unwrap();
+        }
+        let state = Arc::new(FileConversionState::default());
+        state.initialize(root.0.join("temp")).unwrap();
+        let workers = sources.map(|source| {
+            let state = Arc::clone(&state);
+            std::thread::spawn(move || {
+                state
+                    .enqueue(FileConversionEnqueueRequest {
+                        items: vec![FileConversionEnqueueItem {
+                            source_path: source.to_string_lossy().into_owned(),
+                            output_directory: None,
+                        }],
+                    })
+                    .unwrap()
+            })
+        });
+        let results = workers.map(|worker| worker.join().unwrap());
+        assert!(results.iter().all(|result| result.jobs.len() == 1));
+        let snapshots = state.snapshots().unwrap();
+        assert_eq!(snapshots.len(), 2);
+        assert_ne!(snapshots[0].id, snapshots[1].id);
+    }
+
+    #[test]
     fn explicit_start_and_job_scoped_actions_use_the_authoritative_queue() {
         let root = TestRoot::new();
         let first = root.0.join("first.pdf");
@@ -682,6 +834,7 @@ mod tests {
     #[test]
     fn a_new_runtime_has_no_persisted_job_history() {
         let state = FileConversionState::default();
+        assert_eq!(state.provider_initialization_count(), 0);
         assert!(state.snapshots().unwrap().is_empty());
         assert_eq!(
             state.remove("missing").unwrap_err().code,
@@ -691,6 +844,46 @@ mod tests {
             state.cancel("missing").unwrap_err().code,
             FileConversionErrorCode::UnknownJob
         );
+    }
+
+    #[test]
+    fn provider_registry_initializes_once_for_repeated_requests() {
+        let root = TestRoot::new();
+        let state = FileConversionState::default();
+        state.initialize(root.0.join("temp")).unwrap();
+        state.initialize(root.0.join("different-temp")).unwrap();
+
+        assert_eq!(state.provider_initialization_count(), 1);
+        let first = state.capabilities();
+        let second = state.capabilities();
+        assert!(!first.directions.is_empty());
+        assert_eq!(first, second);
+        assert_eq!(state.capability_refresh_count(), 1);
+    }
+
+    #[test]
+    fn every_supported_cause_advances_generation_and_rebuilds_once_on_demand() {
+        let root = TestRoot::new();
+        let state = FileConversionState::default();
+        state.initialize(root.0.join("temp")).unwrap();
+        let _ = state.capabilities();
+        let causes = [
+            FileCapabilityInvalidationCause::EngineInstalled,
+            FileCapabilityInvalidationCause::EngineUpgraded,
+            FileCapabilityInvalidationCause::EngineRepaired,
+            FileCapabilityInvalidationCause::EngineRemoved,
+            FileCapabilityInvalidationCause::NativeProviderChanged,
+            FileCapabilityInvalidationCause::LifecycleReset,
+        ];
+        let mut generation = state.capability_generation();
+        for (index, cause) in causes.into_iter().enumerate() {
+            let next_generation = state.invalidate_capabilities(cause);
+            assert_eq!(next_generation, generation + 1);
+            generation = next_generation;
+            let _ = state.capabilities();
+            let _ = state.capabilities();
+            assert_eq!(state.capability_refresh_count(), index as u64 + 2);
+        }
     }
 
     #[test]

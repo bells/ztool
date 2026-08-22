@@ -24,7 +24,14 @@ export function createBundledPluginRegistry(
       );
     }
 
-    if (!module.kind.trim() || !module.accentClass.trim()) {
+    if (
+      !module.kind.trim()
+      || !module.accentClass.trim()
+      || typeof module.loadPanel !== "function"
+      || Object.values(module.surfaces ?? {}).some(
+        (loader) => typeof loader !== "function",
+      )
+    ) {
       throw new Error(`Bundled plugin ${module.manifest.name} is missing presentation metadata.`);
     }
 

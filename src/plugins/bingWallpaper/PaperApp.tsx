@@ -1,5 +1,5 @@
 import { useCallback, useEffect } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { invoke } from "@tauri-apps/api/core";
 import { BingWallpaperPanel } from "./BingWallpaperPanel";
 import { resolveLanguage } from "../../core/preferences/i18n";
 import { normalizePreferences } from "../../core/preferences/preferencesModel";
@@ -15,7 +15,7 @@ export default function PaperApp() {
     resolveLanguage(preferences.language, navigator.language),
   );
   const dismiss = useCallback(() => {
-    void getCurrentWindow().hide();
+    void invoke("hide_current_surface");
   }, []);
 
   useEffect(() => {

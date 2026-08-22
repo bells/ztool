@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { FileConversionQualityProfile } from "../contracts";
-import { renderDocxForNativePrint } from "./docxToPdf";
+import { clearDocxRenderSurface, renderDocxForNativePrint } from "./docxToPdf";
 import {
   FILE_ENGINE_CANCEL_EVENT,
   FILE_ENGINE_PROTOCOL_VERSION,
@@ -69,15 +69,18 @@ async function runJob(request: FileEngineRunRequest) {
   }
   const controller = new AbortController();
   controllers.set(request.token, controller);
+  let input: Uint8Array | null = null;
+  let output: Uint8Array | null = null;
   try {
-    const input = await readInput(request);
+    input = await readInput(request);
     if (request.direction === "pdfToDocx") {
       installFileEngineRuntimePolyfills();
       const { convertPdfToDocx } = await import("./pdfToDocx");
       const result = await convertPdfToDocx(input, controller.signal, async (progress) => {
         await reportProgress(request, progress.stage, progress.percent);
       });
-      await invoke<void>("file_engine_write_output", result.bytes, tokenHeaders(request));
+      output = result.bytes;
+      await invoke<void>("file_engine_write_output", output, tokenHeaders(request));
       await reportCompletion(request, "completed", result.qualityProfile, result.warningKeys, result.pageCount);
     } else {
       await reportProgress(request, "rendering", 20);
@@ -110,7 +113,19 @@ async function runJob(request: FileEngineRunRequest) {
       } satisfies FileEngineCompletionRequest,
     }).catch(() => undefined);
   } finally {
+    clearDocxRenderSurface();
+    clearBytes(output);
+    clearBytes(input);
     controllers.delete(request.token);
+  }
+}
+
+function clearBytes(bytes: Uint8Array | null) {
+  if (!bytes || bytes.byteLength === 0) return;
+  try {
+    bytes.fill(0);
+  } catch {
+    // PDF.js may transfer and detach its input buffer before terminal cleanup.
   }
 }
 

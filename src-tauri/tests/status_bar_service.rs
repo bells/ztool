@@ -122,7 +122,7 @@ fn status_bar_settings_recovers_from_invalid_json() {
 
     assert!(settings.enabled);
     assert!(!settings.plugin_items_collapsed);
-    assert_eq!(settings.visible_plugin_items["zero.snap"], true);
+    assert!(settings.visible_plugin_items["zero.snap"]);
 
     save_status_bar_settings(&path, &settings).unwrap();
     assert!(fs::read_to_string(&path).unwrap().contains("zero.snap"));
@@ -162,9 +162,9 @@ fn status_bar_settings_migrate_legacy_keys_with_canonical_precedence() {
     let settings = load_status_bar_settings(&path, &records).unwrap();
 
     assert!(!settings.plugin_items_collapsed);
-    assert_eq!(settings.visible_plugin_items["zero.snap"], false);
-    assert_eq!(settings.visible_plugin_items["zero.awake"], false);
-    assert_eq!(settings.visible_plugin_items["ztool.third-party"], true);
+    assert!(!settings.visible_plugin_items["zero.snap"]);
+    assert!(!settings.visible_plugin_items["zero.awake"]);
+    assert!(settings.visible_plugin_items["ztool.third-party"]);
     assert!(!settings
         .visible_plugin_items
         .contains_key("ztool.screenshot"));

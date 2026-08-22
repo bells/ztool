@@ -2,6 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::brand::{
@@ -12,8 +13,18 @@ use crate::brand::{
 pub struct MigrationReport {
     pub copied_entries: usize,
     pub normalized_files: usize,
+    pub completed_fast_path: bool,
     pub diagnostics: Vec<String>,
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MigrationCompletion {
+    schema_version: u16,
+}
+
+const MIGRATION_SCHEMA_VERSION: u16 = 1;
+const MIGRATION_MARKER_NAME: &str = ".legacy-migration.json";
 
 pub fn migrate_default_home() -> MigrationReport {
     migrate_legacy_data(&default_home())
@@ -25,6 +36,13 @@ pub fn migrate_legacy_data(home: &Path) -> MigrationReport {
     let mut report = MigrationReport::default();
 
     if !legacy_root.exists() {
+        report.completed_fast_path = true;
+        return report;
+    }
+
+    let marker_path = canonical_root.join(MIGRATION_MARKER_NAME);
+    if migration_is_complete(&marker_path) {
+        report.completed_fast_path = true;
         return report;
     }
 
@@ -44,7 +62,28 @@ pub fn migrate_legacy_data(home: &Path) -> MigrationReport {
         &mut report,
     );
 
+    if report.diagnostics.is_empty() {
+        if let Err(error) = write_migration_marker(&marker_path) {
+            report.diagnostics.push(error);
+        }
+    }
+
     report
+}
+
+fn migration_is_complete(marker_path: &Path) -> bool {
+    fs::read(marker_path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<MigrationCompletion>(&bytes).ok())
+        .is_some_and(|marker| marker.schema_version == MIGRATION_SCHEMA_VERSION)
+}
+
+fn write_migration_marker(marker_path: &Path) -> Result<(), String> {
+    let bytes = serde_json::to_vec_pretty(&MigrationCompletion {
+        schema_version: MIGRATION_SCHEMA_VERSION,
+    })
+    .map_err(|error| format!("failed to serialize Zero migration marker: {error}"))?;
+    replace_file_atomic(marker_path, &bytes)
 }
 
 fn copy_missing_tree(source: &Path, destination: &Path, report: &mut MigrationReport) {
@@ -211,12 +250,20 @@ fn normalize_registry_file(
 
 fn normalize_json_value(value: &mut Value, legacy_root: &Path, canonical_root: &Path) -> bool {
     match value {
-        Value::Array(values) => values.iter_mut().fold(false, |changed, value| {
-            normalize_json_value(value, legacy_root, canonical_root) || changed
-        }),
-        Value::Object(values) => values.values_mut().fold(false, |changed, value| {
-            normalize_json_value(value, legacy_root, canonical_root) || changed
-        }),
+        Value::Array(values) => {
+            let mut changed = false;
+            for value in values {
+                changed |= normalize_json_value(value, legacy_root, canonical_root);
+            }
+            changed
+        }
+        Value::Object(values) => {
+            let mut changed = false;
+            for value in values.values_mut() {
+                changed |= normalize_json_value(value, legacy_root, canonical_root);
+            }
+            changed
+        }
         Value::String(text) => {
             let canonical_id = canonical_first_party_contribution_id(text);
             if canonical_id != *text {
@@ -224,7 +271,7 @@ fn normalize_json_value(value: &mut Value, legacy_root: &Path, canonical_root: &
                 return true;
             }
 
-            if let Some(relative) = Path::new(text).strip_prefix(legacy_root).ok() {
+            if let Ok(relative) = Path::new(text).strip_prefix(legacy_root) {
                 let canonical_path = canonical_root.join(relative);
                 if canonical_path.exists() {
                     *text = canonical_path.to_string_lossy().into_owned();
@@ -275,7 +322,7 @@ mod tests {
 
     use serde_json::Value;
 
-    use super::migrate_legacy_data;
+    use super::{migrate_legacy_data, MIGRATION_MARKER_NAME};
 
     fn temp_home(label: &str) -> PathBuf {
         let nonce = SystemTime::now()
@@ -338,8 +385,34 @@ mod tests {
             .contains("/.zero/plugins/"));
 
         let second = migrate_legacy_data(&home);
+        assert!(second.completed_fast_path);
         assert_eq!(second.copied_entries, 0);
         assert_eq!(second.normalized_files, 0);
+        fs::remove_dir_all(home).unwrap();
+    }
+
+    #[test]
+    fn corrupt_or_old_completion_marker_reruns_migration() {
+        let home = temp_home("marker-recovery");
+        fs::create_dir_all(home.join(".ztool/data")).unwrap();
+        fs::create_dir_all(home.join(".zero")).unwrap();
+        fs::write(home.join(".ztool/data/example.txt"), "legacy").unwrap();
+        fs::write(
+            home.join(".zero").join(MIGRATION_MARKER_NAME),
+            r#"{"schemaVersion":0}"#,
+        )
+        .unwrap();
+
+        let report = migrate_legacy_data(&home);
+        assert!(!report.completed_fast_path);
+        assert!(report.diagnostics.is_empty(), "{:?}", report.diagnostics);
+        assert_eq!(
+            fs::read_to_string(home.join(".zero/data/example.txt")).unwrap(),
+            "legacy"
+        );
+
+        let second = migrate_legacy_data(&home);
+        assert!(second.completed_fast_path);
         fs::remove_dir_all(home).unwrap();
     }
 

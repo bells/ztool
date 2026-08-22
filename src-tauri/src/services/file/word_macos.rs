@@ -1,6 +1,6 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use super::artifacts::validate_provider_output;
@@ -44,7 +44,7 @@ struct WordMacosInstallation {
 }
 
 pub struct MicrosoftWordMacosProvider {
-    installation: Option<WordMacosInstallation>,
+    installation: Mutex<Option<WordMacosInstallation>>,
     osascript_path: PathBuf,
     process_runner: Arc<dyn DirectProcessRunner>,
     timeout: Duration,
@@ -53,7 +53,7 @@ pub struct MicrosoftWordMacosProvider {
 impl Default for MicrosoftWordMacosProvider {
     fn default() -> Self {
         Self {
-            installation: detect_word_installation(),
+            installation: Mutex::new(detect_word_installation()),
             osascript_path: PathBuf::from(OSASCRIPT_PATH),
             process_runner: Arc::new(SystemProcessRunner),
             timeout: WORD_CONVERSION_TIMEOUT,
@@ -69,7 +69,7 @@ impl MicrosoftWordMacosProvider {
         process_runner: Arc<dyn DirectProcessRunner>,
     ) -> Self {
         Self {
-            installation,
+            installation: Mutex::new(installation),
             osascript_path,
             process_runner,
             timeout: Duration::from_secs(1),
@@ -87,6 +87,11 @@ impl FileConversionProvider for MicrosoftWordMacosProvider {
     }
 
     fn probe(&self) -> FileConversionProviderSnapshot {
+        let installation = self
+            .installation
+            .lock()
+            .ok()
+            .and_then(|installation| installation.clone());
         let unavailable =
             |code, message, retryable| FileConversionProviderAvailability::Unavailable {
                 error: provider_error(
@@ -114,7 +119,7 @@ impl FileConversionProvider for MicrosoftWordMacosProvider {
                     false,
                 ),
             )
-        } else if let Some(installation) = &self.installation {
+        } else if let Some(installation) = &installation {
             if !installation.application_path.is_dir() {
                 return FileConversionProviderSnapshot {
                     id: FileConversionProviderId::MicrosoftWordMacos,
@@ -165,6 +170,12 @@ impl FileConversionProvider for MicrosoftWordMacosProvider {
             quality_profiles: vec![FileConversionQualityProfile::CompatibilityProvider],
             directions: DIRECTIONS.to_vec(),
             availability,
+        }
+    }
+
+    fn invalidate(&self) {
+        if let Ok(mut installation) = self.installation.lock() {
+            *installation = detect_word_installation();
         }
     }
 

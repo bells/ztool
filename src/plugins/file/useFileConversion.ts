@@ -37,6 +37,7 @@ export interface FileConversionActionError {
 
 export interface FileConversionClient {
   getCapabilities(): Promise<FileConversionCapabilitySnapshot>;
+  refreshCapabilities(): Promise<FileConversionCapabilitySnapshot>;
   chooseInputs(): Promise<FileConversionCandidate[]>;
   inspectInputs(sourcePaths: string[]): Promise<FileConversionCandidate[]>;
   enqueue(items: FileConversionEnqueueItem[]): Promise<FileConversionBatchResult>;

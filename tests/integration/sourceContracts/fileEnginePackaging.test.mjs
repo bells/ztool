@@ -87,6 +87,52 @@ test("engine runtime keeps cancellation, crash recovery, and panel lifetime outs
   assert.doesNotMatch(panelHook, /FILE_ENGINE_LABEL|zero-file-engine/);
 });
 
+test("engine document work is sequential and releases page, canvas, DOM, and byte resources", () => {
+  const pdfEngine = fs.readFileSync(
+    path.join(ROOT, "src/plugins/file/engine/pdfToDocx.ts"),
+    "utf8",
+  );
+  const docxEngine = fs.readFileSync(
+    path.join(ROOT, "src/plugins/file/engine/docxToPdf.ts"),
+    "utf8",
+  );
+  const engineApp = fs.readFileSync(
+    path.join(ROOT, "src/plugins/file/engine/FileEngineApp.tsx"),
+    "utf8",
+  );
+  assert.match(pdfEngine, /for \(let pageNumber = 1; pageNumber <= pdf\.numPages/);
+  assert.match(pdfEngine, /page\.cleanup\(\)/);
+  assert.match(pdfEngine, /renderTask\.cancel\(\)/);
+  assert.match(pdfEngine, /canvas\.width = 1/);
+  assert.match(pdfEngine, /canvas\.height = 1/);
+  assert.match(docxEngine, /MAX_IMAGE_DECODE_CONCURRENCY = 4/);
+  assert.match(docxEngine, /clearDocxRenderSurface/);
+  assert.match(docxEngine, /root\.replaceChildren\(\)/);
+  assert.match(engineApp, /clearBytes\(output\)/);
+  assert.match(engineApp, /clearBytes\(input\)/);
+});
+
+test("File startup stays inert and terminal jobs remove Zero-owned staging", () => {
+  const bundledPlugins = fs.readFileSync(
+    path.join(ROOT, "src-tauri/src/bundled_plugins.rs"),
+    "utf8",
+  );
+  const runtime = fs.readFileSync(
+    path.join(ROOT, "src-tauri/src/services/file/runtime.rs"),
+    "utf8",
+  );
+  const managedState = bundledPlugins.slice(
+    bundledPlugins.indexOf("pub fn manage_states"),
+    bundledPlugins.indexOf("pub fn start_quick_launcher"),
+  );
+  assert.match(managedState, /FileConversionState::default\(\)/);
+  assert.doesNotMatch(managedState, /initialize_with_engine|WebviewWindowBuilder/);
+  assert.match(bundledPlugins, /ZERO_FILE_ENGINE_SMOKE_INPUT/);
+  assert.match(runtime, /remove_job_temp_directory\(&temp_root, &job_directory\)/);
+  assert.match(runtime, /worker_running = false/);
+  assert.match(runtime, /schedule_idle_teardown/);
+});
+
 test("release packaging refuses to proceed without the external Ed25519 signing key", async () => {
   const { packageFileEngine } = await import("../../../scripts/package-file-engine.mjs");
   await assert.rejects(

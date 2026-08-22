@@ -1,29 +1,73 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import type { ScreenshotError, ScreenshotMediaDescriptor } from "./captureTypes";
+import { releaseObjectUrl } from "./captureExport";
 
 interface PinPayload {
-  image_base64: string;
+  media: ScreenshotMediaDescriptor;
 }
 
-function toImageSrc(imageBase64: string): string {
-  return imageBase64.startsWith("data:")
-    ? imageBase64
-    : `data:image/png;base64,${imageBase64}`;
+function screenshotErrorMessage(error: unknown): string {
+  if (typeof error === "object" && error !== null && "message" in error) {
+    const message = (error as ScreenshotError).message;
+    if (typeof message === "string") {
+      return message;
+    }
+  }
+  return String(error);
 }
 
 export function PinApp() {
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const imageRef = useRef<HTMLImageElement | null>(null);
 
   useEffect(() => {
-    invoke<PinPayload>("init_pin_window")
-      .then((payload) => setImageSrc(toImageSrc(payload.image_base64)))
-      .catch((err) => setError(String(err)));
+    let disposed = false;
+    let objectUrl: string | null = null;
+    let receivedBytes: Uint8Array | null = null;
+
+    void (async () => {
+      try {
+        const payload = await invoke<PinPayload>("init_pin_window");
+        const value = await invoke<ArrayBuffer>("read_screenshot_media", {
+          input: { token: payload.media.token },
+        });
+        receivedBytes = new Uint8Array(value);
+        if (
+          receivedBytes.byteLength === 0 ||
+          receivedBytes.byteLength !== payload.media.byteLength
+        ) {
+          throw new Error("The pinned screenshot size does not match its descriptor");
+        }
+        objectUrl = URL.createObjectURL(new Blob([value], { type: payload.media.mimeType }));
+        if (disposed) {
+          objectUrl = releaseObjectUrl(objectUrl);
+          return;
+        }
+        setImageSrc(objectUrl);
+      } catch (reason) {
+        objectUrl = releaseObjectUrl(objectUrl);
+        if (!disposed) {
+          setError(screenshotErrorMessage(reason));
+        }
+      } finally {
+        receivedBytes?.fill(0);
+        receivedBytes = null;
+      }
+    })();
+
+    return () => {
+      disposed = true;
+      if (imageRef.current) {
+        imageRef.current.src = "";
+      }
+      objectUrl = releaseObjectUrl(objectUrl);
+    };
   }, []);
 
   const close = () => {
-    getCurrentWindow().close().catch(() => undefined);
+    invoke("close_current_surface").catch(() => undefined);
   };
 
   return (
@@ -35,7 +79,15 @@ export function PinApp() {
         </button>
       </header>
       {error ? <p className="pin-error">{error}</p> : null}
-      {imageSrc ? <img className="pin-image" src={imageSrc} alt="Pinned screenshot" draggable={false} /> : null}
+      {imageSrc ? (
+        <img
+          ref={imageRef}
+          className="pin-image"
+          src={imageSrc}
+          alt="Pinned screenshot"
+          draggable={false}
+        />
+      ) : null}
     </main>
   );
 }

@@ -2,7 +2,7 @@ use tauri::{Manager, State};
 
 use crate::services::bing_wallpaper::{
     BingWallpaperActionInput, BingWallpaperActionResult, BingWallpaperError, BingWallpaperPreview,
-    BingWallpaperSnapshot, BingWallpaperState,
+    BingWallpaperPreviewResourceInput, BingWallpaperSnapshot, BingWallpaperState,
 };
 
 mod window;
@@ -32,6 +32,35 @@ pub async fn get_bing_wallpaper_preview(
     state: State<'_, BingWallpaperState>,
 ) -> Result<BingWallpaperPreview, BingWallpaperError> {
     state.preview(&input.wallpaper_id).await
+}
+
+#[tauri::command]
+pub async fn read_bing_wallpaper_preview(
+    input: BingWallpaperPreviewResourceInput,
+    app: tauri::AppHandle,
+) -> Result<tauri::ipc::Response, BingWallpaperError> {
+    let read_app = app.clone();
+    let bytes = tauri::async_runtime::spawn_blocking(move || {
+        read_app
+            .state::<BingWallpaperState>()
+            .read_preview_bytes(&input.token)
+    })
+    .await
+    .map_err(|_| BingWallpaperError {
+        code: "preview.worker".into(),
+        message: "The wallpaper preview read worker stopped unexpectedly.".into(),
+        retryable: true,
+    })??;
+    crate::services::performance::record_media_transfer(&app, "paper_preview_read", bytes.len());
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+#[tauri::command]
+pub fn release_bing_wallpaper_preview(
+    input: BingWallpaperPreviewResourceInput,
+    state: State<'_, BingWallpaperState>,
+) {
+    state.release_preview(&input.token);
 }
 
 #[tauri::command]

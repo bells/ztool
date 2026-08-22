@@ -5,8 +5,8 @@ import "./App.css";
 import {
   bundledPluginPresentation,
   pluginAccentClass,
-  renderBundledPluginPanel,
 } from "./appShell/bundledPluginModules";
+import { LazyPluginPanel } from "./appShell/LazyPluginPanel";
 import { PRODUCT_NAME } from "./brand/identity";
 import { StatusBarGlyph } from "./components/StatusBarGlyph";
 import { ExtensionSurface } from "./core/pluginHost/ExtensionSurface";
@@ -173,9 +173,31 @@ function pluginPanel(
     return <EmptyPluginState t={createTranslator(language)} />;
   }
 
-  const bundledPanel = renderBundledPluginPanel(plugin.id, language);
-  if (bundledPanel !== undefined) {
-    return bundledPanel;
+  if (bundledPluginPresentation(plugin.id, language)) {
+    const t = createTranslator(language);
+    const unavailable = (
+      <section className="plugin-panel system-panel">
+        <div className="panel-copy">
+          <strong>{plugin.title}</strong>
+          <span>{t("shell.actionError")}</span>
+        </div>
+      </section>
+    );
+    return (
+      <LazyPluginPanel
+        pluginId={plugin.id}
+        language={language}
+        fallback={
+          <section className="plugin-panel system-panel" aria-busy="true">
+            <div className="panel-copy">
+              <strong>{plugin.title}</strong>
+              <span>Loading…</span>
+            </div>
+          </section>
+        }
+        unavailable={unavailable}
+      />
+    );
   }
 
   return <GenericPluginPanel plugin={plugin} />;

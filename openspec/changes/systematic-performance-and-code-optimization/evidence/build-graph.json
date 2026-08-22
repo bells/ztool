@@ -1,0 +1,213 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-08-22T09:58:54.893Z",
+  "budget": {
+    "initialEntryBytes": 285000,
+    "initialEntryGzipBytes": 90000,
+    "largestChunkBytes": 820000
+  },
+  "findings": [],
+  "forbiddenEagerImports": [],
+  "fileEngineAssets": {
+    "installedBytes": 4780883,
+    "compressedBytes": 2458867
+  },
+  "sourceGraph": {
+    "modules": [
+      "src/App.css",
+      "src/appShell/appSurface.ts",
+      "src/appShell/bundledPluginModules.ts",
+      "src/brand/identity.ts",
+      "src/core/pluginHost/contracts.ts",
+      "src/core/pluginHost/extensionBridge.ts",
+      "src/core/pluginHost/extensionLauncherHost.ts",
+      "src/core/pluginHost/launcherContracts.ts",
+      "src/core/pluginHost/pluginModule.ts",
+      "src/core/pluginHost/pluginModuleRegistry.ts",
+      "src/core/pluginHost/pluginTypes.ts",
+      "src/core/preferences/i18n.ts",
+      "src/core/preferences/preferencesModel.ts",
+      "src/core/windowing/surfaceActivityCore.ts",
+      "src/main.tsx",
+      "src/plugins/bingWallpaper/i18n.ts",
+      "src/plugins/bingWallpaper/plugin.tsx",
+      "src/plugins/caffeine/i18n.ts",
+      "src/plugins/caffeine/plugin.tsx",
+      "src/plugins/file/contracts.ts",
+      "src/plugins/file/i18n.ts",
+      "src/plugins/file/plugin.tsx",
+      "src/plugins/quickLauncher/contracts.ts",
+      "src/plugins/quickLauncher/i18n.ts",
+      "src/plugins/quickLauncher/plugin.tsx",
+      "src/plugins/quickLauncher/quickLauncherService.ts",
+      "src/plugins/quickLauncher/quickLauncherServiceCore.ts",
+      "src/plugins/screenshot/i18n.ts",
+      "src/plugins/screenshot/plugin.tsx"
+    ],
+    "externalImports": [
+      "@tauri-apps/api/core",
+      "@tauri-apps/api/event",
+      "@tauri-apps/api/window",
+      "react",
+      "react-dom/client"
+    ],
+    "dynamicImports": [
+      "./App",
+      "./BingWallpaperPanel",
+      "./CaffeinePanel",
+      "./FilePanel",
+      "./PaperApp",
+      "./QuickLauncherApp",
+      "./QuickLauncherPanel",
+      "./ScreenshotPanel",
+      "./capture/CaptureApp",
+      "./capture/PinApp",
+      "./plugins/file/engine/FileEngineApp"
+    ]
+  },
+  "entries": [
+    {
+      "key": "index.html",
+      "file": "assets/index-VBSitV78.js",
+      "staticAssets": [
+        {
+          "key": "index.html",
+          "file": "assets/index-VBSitV78.js",
+          "bytes": 267788,
+          "gzipBytes": 82165
+        }
+      ],
+      "dynamicImports": [
+        "src/plugins/bingWallpaper/BingWallpaperPanel.tsx",
+        "src/plugins/bingWallpaper/PaperApp.tsx",
+        "src/plugins/caffeine/CaffeinePanel.tsx",
+        "src/plugins/file/FilePanel.tsx",
+        "src/plugins/quickLauncher/QuickLauncherPanel.tsx",
+        "src/plugins/quickLauncher/QuickLauncherApp.tsx",
+        "src/plugins/screenshot/ScreenshotPanel.tsx",
+        "src/plugins/screenshot/capture/CaptureApp.tsx",
+        "src/plugins/screenshot/capture/PinApp.tsx",
+        "src/plugins/file/engine/FileEngineApp.tsx",
+        "src/App.tsx"
+      ],
+      "staticBytes": 267788,
+      "staticGzipBytes": 82165
+    }
+  ],
+  "chunks": [
+    {
+      "key": "src/plugins/file/engine/pdfToDocx.ts",
+      "file": "assets/pdfToDocx-Cu6HVmBr.js",
+      "bytes": 795338,
+      "gzipBytes": 233299
+    },
+    {
+      "key": "index.html",
+      "file": "assets/index-VBSitV78.js",
+      "bytes": 267788,
+      "gzipBytes": 82165
+    },
+    {
+      "key": "src/plugins/file/engine/FileEngineApp.tsx",
+      "file": "assets/FileEngineApp-Dd6-jdgk.js",
+      "bytes": 179176,
+      "gzipBytes": 53077
+    },
+    {
+      "key": "src/App.tsx",
+      "file": "assets/App-C6uL9emm.js",
+      "bytes": 52246,
+      "gzipBytes": 13343
+    },
+    {
+      "key": "src/plugins/file/FilePanel.tsx",
+      "file": "assets/FilePanel-SwtrcUP_.js",
+      "bytes": 19450,
+      "gzipBytes": 6271
+    },
+    {
+      "key": "src/plugins/screenshot/capture/CaptureApp.tsx",
+      "file": "assets/CaptureApp-DemSHEIw.js",
+      "bytes": 15765,
+      "gzipBytes": 5440
+    },
+    {
+      "key": "_useQuickLauncher-D9pHTZ52.js",
+      "file": "assets/useQuickLauncher-D9pHTZ52.js",
+      "bytes": 9979,
+      "gzipBytes": 3687
+    },
+    {
+      "key": "src/plugins/bingWallpaper/BingWallpaperPanel.tsx",
+      "file": "assets/BingWallpaperPanel-CfZZ4Qfv.js",
+      "bytes": 7906,
+      "gzipBytes": 2593
+    },
+    {
+      "key": "src/plugins/caffeine/CaffeinePanel.tsx",
+      "file": "assets/CaffeinePanel-CIRFaqNw.js",
+      "bytes": 4843,
+      "gzipBytes": 1736
+    },
+    {
+      "key": "_captureExport-DtJE0koc.js",
+      "file": "assets/captureExport-DtJE0koc.js",
+      "bytes": 4726,
+      "gzipBytes": 1849
+    },
+    {
+      "key": "src/plugins/screenshot/ScreenshotPanel.tsx",
+      "file": "assets/ScreenshotPanel-yX4fuDb3.js",
+      "bytes": 3376,
+      "gzipBytes": 1248
+    },
+    {
+      "key": "_x-9kcyK11X.js",
+      "file": "assets/x-9kcyK11X.js",
+      "bytes": 1765,
+      "gzipBytes": 955
+    },
+    {
+      "key": "src/plugins/screenshot/capture/PinApp.tsx",
+      "file": "assets/PinApp-nwVlclYK.js",
+      "bytes": 1365,
+      "gzipBytes": 758
+    },
+    {
+      "key": "_preferencesStorage-BWI1wn00.js",
+      "file": "assets/preferencesStorage-BWI1wn00.js",
+      "bytes": 1256,
+      "gzipBytes": 634
+    },
+    {
+      "key": "src/plugins/quickLauncher/QuickLauncherApp.tsx",
+      "file": "assets/QuickLauncherApp-B-pJrq0Y.js",
+      "bytes": 951,
+      "gzipBytes": 590
+    },
+    {
+      "key": "_useSurfaceActivity-e9kfwCZ4.js",
+      "file": "assets/useSurfaceActivity-e9kfwCZ4.js",
+      "bytes": 777,
+      "gzipBytes": 426
+    },
+    {
+      "key": "src/plugins/bingWallpaper/PaperApp.tsx",
+      "file": "assets/PaperApp-Dm6R-qYv.js",
+      "bytes": 642,
+      "gzipBytes": 420
+    },
+    {
+      "key": "src/plugins/quickLauncher/QuickLauncherPanel.tsx",
+      "file": "assets/QuickLauncherPanel-B_FXf-xQ.js",
+      "bytes": 572,
+      "gzipBytes": 338
+    }
+  ],
+  "largestChunk": {
+    "key": "src/plugins/file/engine/pdfToDocx.ts",
+    "file": "assets/pdfToDocx-Cu6HVmBr.js",
+    "bytes": 795338,
+    "gzipBytes": 233299
+  }
+}

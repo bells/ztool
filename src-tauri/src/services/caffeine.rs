@@ -109,6 +109,12 @@ pub struct CaffeineState {
     process: Mutex<Option<Child>>,
 }
 
+impl Default for CaffeineState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CaffeineState {
     pub fn new() -> Self {
         Self {

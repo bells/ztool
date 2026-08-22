@@ -130,5 +130,5 @@ fn deserializes_market_index_contract() {
     .expect("market index should deserialize");
 
     assert_eq!(market.schema_version, 1);
-    assert_eq!(market.plugins[0].download_url.ends_with(".zplugin"), true);
+    assert!(market.plugins[0].download_url.ends_with(".zplugin"));
 }

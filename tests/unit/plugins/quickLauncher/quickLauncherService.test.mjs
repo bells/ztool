@@ -31,6 +31,8 @@ test("quick launcher service invokes stable command names and camelCase inputs",
   await service.refresh();
   await service.search("ps", 12);
   await service.getIcon("app:windows:2", "key");
+  await service.getIcons([{ itemId: "app:windows:2", iconKey: "key" }]);
+  await service.refreshRunning();
   await service.activate("app:windows:2", 9);
   await service.showWindow();
   await service.hideWindow();
@@ -40,6 +42,10 @@ test("quick launcher service invokes stable command names and camelCase inputs",
     [QUICK_LAUNCHER_COMMANDS.refresh, undefined],
     [QUICK_LAUNCHER_COMMANDS.search, { input: { query: "ps", limit: 12 } }],
     [QUICK_LAUNCHER_COMMANDS.icon, { input: { itemId: "app:windows:2", iconKey: "key" } }],
+    [QUICK_LAUNCHER_COMMANDS.icons, {
+      input: { items: [{ itemId: "app:windows:2", iconKey: "key" }] },
+    }],
+    [QUICK_LAUNCHER_COMMANDS.refreshRunning, undefined],
     [QUICK_LAUNCHER_COMMANDS.activate, { input: { itemId: "app:windows:2", revision: 9 } }],
     [QUICK_LAUNCHER_COMMANDS.showWindow, undefined],
     [QUICK_LAUNCHER_COMMANDS.hideWindow, undefined],

@@ -10,17 +10,36 @@ const plugins = [
   ["file", "zero.file", "plugins/file", "accent-file"],
 ];
 
-test("each bundled plugin owns its manifest presentation localization and renderer", () => {
+test("each bundled plugin owns its manifest presentation localization and lazy renderer", () => {
   for (const [directory, id, main, accent] of plugins) {
     const source = fs.readFileSync(`src/plugins/${directory}/plugin.tsx`, "utf8");
     assert.match(source, /(?:name|id): FIRST_PARTY_PLUGIN_IDS\./);
     assert.match(source, new RegExp(`main: ["']${main}["']`));
     assert.match(source, new RegExp(`accentClass: ["']${accent}["']`));
     assert.match(source, /presentation:/);
-    assert.match(source, /renderPanel\(language\)/);
+    assert.match(source, /loadPanel:\s*\(\)\s*=>\s*import\(/);
     assert.ok(fs.existsSync(`src/plugins/${directory}/i18n.ts`));
     assert.match(source, new RegExp(id.split(".").join("\\.")));
   }
+});
+
+test("dedicated surfaces and panels stay behind plugin-owned dynamic imports", () => {
+  const main = fs.readFileSync("src/main.tsx", "utf8");
+  assert.doesNotMatch(main, /from ["']\.\/App["']/);
+  assert.doesNotMatch(main, /from ["']\.\/plugins\/file\/engine\/FileEngineApp["']/);
+  assert.match(main, /lazy\(loadRoutedApp\)/);
+
+  const screenshot = fs.readFileSync("src/plugins/screenshot/plugin.tsx", "utf8");
+  assert.match(screenshot, /capture:\s*\(\)\s*=>\s*import\("\.\/capture\/CaptureApp"\)/);
+  assert.match(screenshot, /pin:\s*\(\)\s*=>\s*import\("\.\/capture\/PinApp"\)/);
+  const launch = fs.readFileSync("src/plugins/quickLauncher/plugin.tsx", "utf8");
+  assert.match(launch, /launcher:\s*\(\)\s*=>\s*import\("\.\/QuickLauncherApp"\)/);
+  const paper = fs.readFileSync("src/plugins/bingWallpaper/plugin.tsx", "utf8");
+  assert.match(paper, /paper:\s*\(\)\s*=>\s*import\("\.\/PaperApp"\)/);
+
+  const boundary = fs.readFileSync("src/appShell/LazyPluginPanel.tsx", "utf8");
+  assert.match(boundary, /<Suspense fallback=/);
+  assert.match(boundary, /getDerivedStateFromError/);
 });
 
 test("the app shell is the only composition root for concrete plugin descriptors", () => {

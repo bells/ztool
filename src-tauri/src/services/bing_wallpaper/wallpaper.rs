@@ -130,42 +130,6 @@ fn set_plugin_wallpaper_with_capability(
     Ok(path)
 }
 
-#[cfg(test)]
-mod tests {
-    use std::path::Path;
-
-    use super::{
-        set_plugin_wallpaper_with_capability, WallpaperPlatformCapability, WallpaperSetter,
-    };
-    use crate::plugins::contracts::NativeResourceError;
-
-    struct NoopSetter;
-
-    impl WallpaperSetter for NoopSetter {
-        fn set_from_path(&self, _path: &Path) -> Result<(), NativeResourceError> {
-            Ok(())
-        }
-    }
-
-    #[test]
-    fn unsupported_platform_fails_before_resolving_or_applying_a_file() {
-        let error = set_plugin_wallpaper_with_capability(
-            &NoopSetter,
-            Path::new("/unused"),
-            "wallpaper.jpg",
-            WallpaperPlatformCapability {
-                platform: "mobile".into(),
-                supported: false,
-                detail: Some("No desktop wallpaper API is available.".into()),
-            },
-        )
-        .expect_err("unsupported platform should fail");
-
-        assert_eq!(error.code, "platform_unsupported");
-        assert!(!error.retryable);
-    }
-}
-
 pub fn validate_plugin_image(
     plugin_root: &Path,
     relative_path: &str,
@@ -210,4 +174,40 @@ pub fn validate_plugin_image(
     })?;
 
     Ok(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::{
+        set_plugin_wallpaper_with_capability, WallpaperPlatformCapability, WallpaperSetter,
+    };
+    use crate::plugins::contracts::NativeResourceError;
+
+    struct NoopSetter;
+
+    impl WallpaperSetter for NoopSetter {
+        fn set_from_path(&self, _path: &Path) -> Result<(), NativeResourceError> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn unsupported_platform_fails_before_resolving_or_applying_a_file() {
+        let error = set_plugin_wallpaper_with_capability(
+            &NoopSetter,
+            Path::new("/unused"),
+            "wallpaper.jpg",
+            WallpaperPlatformCapability {
+                platform: "mobile".into(),
+                supported: false,
+                detail: Some("No desktop wallpaper API is available.".into()),
+            },
+        )
+        .expect_err("unsupported platform should fail");
+
+        assert_eq!(error.code, "platform_unsupported");
+        assert!(!error.retryable);
+    }
 }

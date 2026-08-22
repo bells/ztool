@@ -1,4 +1,3 @@
-import type { ComponentType } from "react";
 import { createExtensionLauncherHostApis } from "../core/pluginHost/extensionLauncherHost";
 import type {
   BundledPluginModule,
@@ -50,16 +49,13 @@ export function bundledPluginPresentation(
   return bundledPluginModule(pluginId)?.presentation[language];
 }
 
-export function renderBundledPluginPanel(
-  pluginId: string,
-  language: ResolvedLanguage,
-) {
-  return bundledPluginModule(pluginId)?.renderPanel(language);
+export function bundledPluginPanelLoader(pluginId: string) {
+  return bundledPluginModule(pluginId)?.loadPanel;
 }
 
-export function bundledPluginSurface(
+export function bundledPluginSurfaceLoader(
   surface: BundledPluginSurface,
-): ComponentType | undefined {
+) {
   return BUNDLED_PLUGIN_MODULES.find((module) => module.surfaces?.[surface])
     ?.surfaces?.[surface];
 }

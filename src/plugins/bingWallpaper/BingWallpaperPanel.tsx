@@ -80,7 +80,7 @@ export function BingWallpaperPanel({ t }: BingWallpaperPanelProps) {
             onClick={() => void wallpaper.apply()}
           >
             {previewReady ? (
-              <img src={wallpaper.preview?.dataUrl} alt={title} />
+              <img src={wallpaper.preview?.resourceUrl} alt={title} />
             ) : (
               <span className="wallpaper-preview-placeholder">
                 {wallpaper.isPreviewLoading ? t("wallpaper.previewLoading") : t("wallpaper.previewUnavailable")}

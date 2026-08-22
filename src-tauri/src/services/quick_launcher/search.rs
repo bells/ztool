@@ -1,4 +1,6 @@
+use std::cell::RefCell;
 use std::cmp::Reverse;
+use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use nucleo_matcher::pattern::{AtomKind, CaseMatching, Normalization, Pattern};
@@ -6,14 +8,18 @@ use nucleo_matcher::{Config, Matcher, Utf32Str};
 use pinyin::ToPinyin;
 
 use super::contracts::{
-    launcher_error, QuickLauncherError, QuickLauncherResultItem, QuickLauncherSearchInput,
-    QuickLauncherSearchResult,
+    launcher_error, QuickLauncherError, QuickLauncherResultItem, QuickLauncherRunningState,
+    QuickLauncherSearchInput, QuickLauncherSearchResult,
 };
 use super::model::{IndexedItem, SearchFields, UsageMap};
 
 pub const MAX_QUERY_CHARS: usize = 128;
 pub const DEFAULT_RESULT_LIMIT: usize = 24;
 pub const MAX_RESULT_LIMIT: usize = 50;
+
+thread_local! {
+    static THREAD_MATCHER: RefCell<Matcher> = RefCell::new(default_matcher());
+}
 
 pub trait Romanizer {
     fn romanize(&self, value: &str) -> (String, String);
@@ -99,6 +105,17 @@ pub fn search_items(
     input: QuickLauncherSearchInput,
     matcher: &mut Matcher,
 ) -> Result<QuickLauncherSearchResult, QuickLauncherError> {
+    search_items_with_running(revision, items, usage, &HashMap::new(), input, matcher)
+}
+
+pub fn search_items_with_running(
+    revision: u64,
+    items: &[IndexedItem],
+    usage: &UsageMap,
+    running_states: &HashMap<String, QuickLauncherRunningState>,
+    input: QuickLauncherSearchInput,
+    matcher: &mut Matcher,
+) -> Result<QuickLauncherSearchResult, QuickLauncherError> {
     let started = std::time::Instant::now();
     if input.query.chars().count() > MAX_QUERY_CHARS {
         return Err(launcher_error(
@@ -128,7 +145,13 @@ pub fn search_items(
     );
     let mut ranked = items
         .iter()
-        .filter_map(|item| rank_item(item, usage, &query, &pattern, matcher, now))
+        .filter_map(|item| {
+            let running = running_states
+                .get(&item.id)
+                .copied()
+                .unwrap_or(item.running);
+            rank_item(item, running, usage, &query, &pattern, matcher, now)
+        })
         .collect::<Vec<_>>();
     ranked.sort_by_key(|ranked| {
         (
@@ -151,7 +174,7 @@ pub fn search_items(
                 kind: ranked.item.kind,
                 title: ranked.item.title.clone(),
                 subtitle: ranked.item.subtitle.clone(),
-                running: ranked.item.running,
+                running: ranked.running,
                 icon_key: ranked.item.icon_key.clone(),
                 matched_field: ranked.matched_field,
             })
@@ -159,8 +182,28 @@ pub fn search_items(
     })
 }
 
+pub fn search_items_thread_local(
+    revision: u64,
+    items: &[IndexedItem],
+    usage: &UsageMap,
+    running_states: &HashMap<String, QuickLauncherRunningState>,
+    input: QuickLauncherSearchInput,
+) -> Result<QuickLauncherSearchResult, QuickLauncherError> {
+    THREAD_MATCHER.with(|matcher| {
+        search_items_with_running(
+            revision,
+            items,
+            usage,
+            running_states,
+            input,
+            &mut matcher.borrow_mut(),
+        )
+    })
+}
+
 struct RankedItem<'a> {
     item: &'a IndexedItem,
+    running: QuickLauncherRunningState,
     score: u64,
     last_used_at: u64,
     matched_field: String,
@@ -168,6 +211,7 @@ struct RankedItem<'a> {
 
 fn rank_item<'a>(
     item: &'a IndexedItem,
+    running: QuickLauncherRunningState,
     usage: &UsageMap,
     query: &str,
     pattern: &Pattern,
@@ -187,7 +231,7 @@ fn rank_item<'a>(
         0
     };
     let running_bonus = matches!(
-        item.running,
+        running,
         super::contracts::QuickLauncherRunningState::Running
     ) as u64
         * 4;
@@ -200,6 +244,7 @@ fn rank_item<'a>(
             * 2;
         return Some(RankedItem {
             item,
+            running,
             score: usage_bonus + recency_bonus + running_bonus + common_setting_bonus,
             last_used_at,
             matched_field: "recent".into(),
@@ -248,7 +293,10 @@ fn rank_item<'a>(
         };
         let fuzzy = fuzzy as u64;
         let text_score = tier * 1_000_000 + fuzzy * 100 + field_bonus;
-        if best.as_ref().map_or(true, |(score, _)| text_score > *score) {
+        if match best.as_ref() {
+            Some((score, _)) => text_score > *score,
+            None => true,
+        } {
             best = Some((text_score, field_name.into()));
         }
     }
@@ -256,6 +304,7 @@ fn rank_item<'a>(
 
     Some(RankedItem {
         item,
+        running,
         score: text_score + usage_bonus + recency_bonus + running_bonus,
         last_used_at,
         matched_field,

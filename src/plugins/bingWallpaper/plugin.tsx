@@ -1,11 +1,9 @@
 import { FIRST_PARTY_PLUGIN_IDS } from "../../brand/identity";
 import type { BundledPluginModule } from "../../core/pluginHost/pluginModule";
-import { BingWallpaperPanel } from "./BingWallpaperPanel";
 import {
   bingWallpaperMessages,
   createBingWallpaperTranslator,
 } from "./i18n";
-import PaperApp from "./PaperApp";
 
 export const bingWallpaperPlugin: BundledPluginModule = {
   kind: "bing-wallpaper",
@@ -50,8 +48,10 @@ export const bingWallpaperPlugin: BundledPluginModule = {
       subtitle: bingWallpaperMessages["en-US"]["plugin.subtitle"],
     },
   },
-  renderPanel(language) {
-    return <BingWallpaperPanel t={createBingWallpaperTranslator(language)} />;
-  },
-  surfaces: { paper: PaperApp },
+  loadPanel: () => import("./BingWallpaperPanel").then(({ BingWallpaperPanel }) => ({
+    default: ({ language }) => (
+      <BingWallpaperPanel t={createBingWallpaperTranslator(language)} />
+    ),
+  })),
+  surfaces: { paper: () => import("./PaperApp") },
 };

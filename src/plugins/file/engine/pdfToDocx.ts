@@ -71,42 +71,50 @@ export async function convertPdfToDocx(
     throw error;
   }
   try {
-    const pages: Array<{ page: PDFPageProxy; complexity: PdfPageComplexityInput }> = [];
+    const pages: PdfPageComplexityInput[] = [];
     for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
       assertNotCancelled(signal);
       const page = await pdf.getPage(pageNumber);
-      const viewport = page.getViewport({ scale: 1 });
-      const content = await page.getTextContent();
-      const operatorList = await page.getOperatorList();
-      const text = content.items.flatMap<PdfTextSample>((item) => {
-        if (!("str" in item) || item.str.trim().length === 0) return [];
-        const [a, b, , d, x, y] = item.transform;
-        return [{
-          text: item.str,
-          x,
-          y: viewport.height - y,
-          width: Math.abs(item.width),
-          height: Math.max(Math.abs(d), Math.abs(item.height), 1),
-          rotationDegrees: Math.atan2(b, a) * (180 / Math.PI),
-        }];
-      });
-      const vectorOperationCount = operatorList.fnArray.filter((operation) =>
-        operation === OPS.constructPath || operation === OPS.paintFormXObjectBegin,
-      ).length;
-      const imageCount = operatorList.fnArray.filter((operation) =>
-        operation === OPS.paintImageXObject || operation === OPS.paintInlineImageXObject,
-      ).length;
-      pages.push({
-        page,
-        complexity: { width: viewport.width, height: viewport.height, text, vectorOperationCount, imageCount },
-      });
+      try {
+        const viewport = page.getViewport({ scale: 1 });
+        const content = await page.getTextContent();
+        assertNotCancelled(signal);
+        const operatorList = await page.getOperatorList();
+        const text = content.items.flatMap<PdfTextSample>((item) => {
+          if (!("str" in item) || item.str.trim().length === 0) return [];
+          const [a, b, , d, x, y] = item.transform;
+          return [{
+            text: item.str,
+            x,
+            y: viewport.height - y,
+            width: Math.abs(item.width),
+            height: Math.max(Math.abs(d), Math.abs(item.height), 1),
+            rotationDegrees: Math.atan2(b, a) * (180 / Math.PI),
+          }];
+        });
+        const vectorOperationCount = operatorList.fnArray.filter((operation) =>
+          operation === OPS.constructPath || operation === OPS.paintFormXObjectBegin,
+        ).length;
+        const imageCount = operatorList.fnArray.filter((operation) =>
+          operation === OPS.paintImageXObject || operation === OPS.paintInlineImageXObject,
+        ).length;
+        pages.push({
+          width: viewport.width,
+          height: viewport.height,
+          text,
+          vectorOperationCount,
+          imageCount,
+        });
+      } finally {
+        page.cleanup();
+      }
       await onProgress({ stage: "analyzing", percent: Math.round((pageNumber / pdf.numPages) * 30) });
     }
 
-    const decision = classifyPdfComplexity(pages.map(({ complexity }) => complexity));
+    const decision = classifyPdfComplexity(pages);
     if (decision.profile === "editableReconstruction") {
       try {
-        const output = await createEditableDocx(pages.map(({ complexity }) => complexity), signal);
+        const output = await createEditableDocx(pages, signal);
         return {
           bytes: output,
           qualityProfile: "editableReconstruction",
@@ -118,7 +126,7 @@ export async function convertPdfToDocx(
       }
     }
 
-    const output = await createLayoutDocx(pages, signal, onProgress);
+    const output = await createLayoutDocx(pdf, pages, signal, onProgress);
     return {
       bytes: output,
       qualityProfile: "layoutPreserving",
@@ -145,66 +153,99 @@ async function createEditableDocx(pages: PdfPageComplexityInput[], signal: Abort
       })),
     };
   });
+  assertNotCancelled(signal);
   const blob = await Packer.toBlob(new Document({ sections }));
-  return new Uint8Array(await blob.arrayBuffer());
+  assertNotCancelled(signal);
+  const output = new Uint8Array(await blob.arrayBuffer());
+  assertNotCancelled(signal);
+  return output;
 }
 
 async function createLayoutDocx(
-  pages: Array<{ page: PDFPageProxy; complexity: PdfPageComplexityInput }>,
+  pdf: PDFDocumentProxy,
+  pages: PdfPageComplexityInput[],
   signal: AbortSignal,
   onProgress: (progress: PdfToDocxProgress) => Promise<void>,
 ) {
   const sections = [];
   for (let index = 0; index < pages.length; index += 1) {
     assertNotCancelled(signal);
-    const { page, complexity } = pages[index];
+    const complexity = pages[index];
+    const page: PDFPageProxy = await pdf.getPage(index + 1);
     const scale = boundedScale(complexity.width, complexity.height);
     const viewport = page.getViewport({ scale });
     const canvas = document.createElement("canvas");
-    canvas.width = Math.max(1, Math.floor(viewport.width));
-    canvas.height = Math.max(1, Math.floor(viewport.height));
-    const context = canvas.getContext("2d", { alpha: false });
-    if (!context) throw new Error("Canvas rendering is unavailable.");
-    await onProgress({
-      stage: "rendering",
-      percent: 30 + Math.round((index / pages.length) * 60),
-    });
-    await page.render({ canvas, canvasContext: context, viewport, intent: "print" }).promise;
-    await onProgress({
-      stage: "rendering",
-      percent: 30 + Math.round(((index + 0.45) / pages.length) * 60),
-    });
-    assertNotCancelled(signal);
-    const photographic = complexity.imageCount > 0 && complexity.text.length < 8;
-    const mimeType = photographic ? "image/jpeg" : "image/png";
-    const blob = await canvasToBlob(canvas, mimeType, photographic ? 0.9 : undefined);
-    await onProgress({
-      stage: "rendering",
-      percent: 30 + Math.round(((index + 0.75) / pages.length) * 60),
-    });
-    const image = new Uint8Array(await blob.arrayBuffer());
-    sections.push({
-      properties: pageProperties(complexity.width, complexity.height),
-      children: [new Paragraph({
-        spacing: { before: 0, after: 0 },
-        children: [new ImageRun({
-          data: image,
-          type: photographic ? "jpg" : "png",
-          transformation: {
-            width: Math.round(complexity.width * (96 / 72)),
-            height: Math.round(complexity.height * (96 / 72)),
-          },
+    try {
+      canvas.width = Math.max(1, Math.floor(viewport.width));
+      canvas.height = Math.max(1, Math.floor(viewport.height));
+      const context = canvas.getContext("2d", { alpha: false });
+      if (!context) throw new Error("Canvas rendering is unavailable.");
+      await onProgress({
+        stage: "rendering",
+        percent: 30 + Math.round((index / pages.length) * 60),
+      });
+      await renderPage(page, canvas, context, viewport, signal);
+      await onProgress({
+        stage: "rendering",
+        percent: 30 + Math.round(((index + 0.45) / pages.length) * 60),
+      });
+      assertNotCancelled(signal);
+      const photographic = complexity.imageCount > 0 && complexity.text.length < 8;
+      const mimeType = photographic ? "image/jpeg" : "image/png";
+      const blob = await canvasToBlob(canvas, mimeType, photographic ? 0.9 : undefined);
+      await onProgress({
+        stage: "rendering",
+        percent: 30 + Math.round(((index + 0.75) / pages.length) * 60),
+      });
+      const image = new Uint8Array(await blob.arrayBuffer());
+      assertNotCancelled(signal);
+      sections.push({
+        properties: pageProperties(complexity.width, complexity.height),
+        children: [new Paragraph({
+          spacing: { before: 0, after: 0 },
+          children: [new ImageRun({
+            data: image,
+            type: photographic ? "jpg" : "png",
+            transformation: {
+              width: Math.round(complexity.width * (96 / 72)),
+              height: Math.round(complexity.height * (96 / 72)),
+            },
+          })],
         })],
-      })],
-    });
-    canvas.width = 1;
-    canvas.height = 1;
+      });
+    } finally {
+      canvas.width = 1;
+      canvas.height = 1;
+      page.cleanup();
+    }
     await onProgress({ stage: "rendering", percent: 30 + Math.round(((index + 1) / pages.length) * 60) });
   }
   assertNotCancelled(signal);
   await onProgress({ stage: "packaging", percent: 95 });
   const blob = await Packer.toBlob(new Document({ sections }));
+  assertNotCancelled(signal);
   return new Uint8Array(await blob.arrayBuffer());
+}
+
+async function renderPage(
+  page: PDFPageProxy,
+  canvas: HTMLCanvasElement,
+  context: CanvasRenderingContext2D,
+  viewport: ReturnType<PDFPageProxy["getViewport"]>,
+  signal: AbortSignal,
+) {
+  const renderTask = page.render({ canvas, canvasContext: context, viewport, intent: "print" });
+  const cancel = () => renderTask.cancel();
+  signal.addEventListener("abort", cancel, { once: true });
+  try {
+    await renderTask.promise;
+    assertNotCancelled(signal);
+  } catch (error) {
+    if (signal.aborted) throw new FileEngineCancelledError("Conversion cancelled.");
+    throw error;
+  } finally {
+    signal.removeEventListener("abort", cancel);
+  }
 }
 
 function pageProperties(widthPoints: number, heightPoints: number) {

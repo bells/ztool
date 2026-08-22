@@ -119,6 +119,26 @@ pub struct QuickLauncherIconResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct QuickLauncherIconBatchInput {
+    pub items: Vec<QuickLauncherIconInput>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuickLauncherIconBatchResult {
+    pub results: Vec<QuickLauncherIconResult>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuickLauncherRunningSnapshot {
+    pub index_revision: u64,
+    pub running_revision: u64,
+    pub expires_at_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QuickLauncherError {
     pub operation: String,
@@ -186,6 +206,13 @@ mod tests {
         assert!(
             serde_json::from_value::<QuickLauncherIconInput>(serde_json::json!({
                 "itemId": 7
+            }))
+            .is_err()
+        );
+        assert!(
+            serde_json::from_value::<QuickLauncherIconBatchInput>(serde_json::json!({
+                "items": [],
+                "concurrency": 100
             }))
             .is_err()
         );

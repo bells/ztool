@@ -22,6 +22,7 @@ test("file service uses stable commands and exact camelCase input envelopes", as
   );
 
   await service.getCapabilities();
+  await service.refreshCapabilities();
   await service.chooseInputs();
   await service.inspectInputs(["/tmp/报告.pdf"]);
   await service.enqueue([{ sourcePath: "/tmp/报告.pdf" }]);
@@ -37,6 +38,7 @@ test("file service uses stable commands and exact camelCase input envelopes", as
 
   assert.deepEqual(calls, [
     [FILE_CONVERSION_COMMANDS.capabilities, undefined],
+    [FILE_CONVERSION_COMMANDS.refreshCapabilities, undefined],
     [FILE_CONVERSION_COMMANDS.choose, undefined],
     [FILE_CONVERSION_COMMANDS.inspect, { input: { sourcePaths: ["/tmp/报告.pdf"] } }],
     [FILE_CONVERSION_COMMANDS.enqueue, { input: { items: [{ sourcePath: "/tmp/报告.pdf" }] } }],

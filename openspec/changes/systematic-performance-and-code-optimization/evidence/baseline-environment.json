@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-08-22T07:45:48.375Z",
+  "kind": "baseline-build",
+  "repository": {
+    "commit": "5ad4a6d92f4afc9be5c308eeeef23c0bf4c52fb9",
+    "dirty": true
+  },
+  "environment": {
+    "os": "macOS 26.5.2 (25F84)",
+    "architecture": "arm64",
+    "hardware": "Apple M2; 8 logical CPUs",
+    "memory": "16384 MiB",
+    "powerMode": "Now drawing from 'AC Power'",
+    "displaySetup": "not-recorded; required before native comparison"
+  },
+  "protocol": {
+    "buildMode": "production-frontend",
+    "command": "pnpm build",
+    "sampleCount": 1,
+    "warmupCount": 0,
+    "settleMs": 0
+  },
+  "notes": []
+}

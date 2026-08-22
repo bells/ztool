@@ -15,6 +15,8 @@ test("uses stable command names and camelCase wallpaperId payloads", async () =>
   await service.snapshot();
   await service.refresh();
   await service.preview({ wallpaperId: "wallpaper-1" });
+  await service.readPreview({ token: "preview-token" });
+  await service.releasePreview({ token: "preview-token" });
   await service.save({ wallpaperId: "wallpaper-1" });
   await service.apply({ wallpaperId: "wallpaper-1" });
 
@@ -22,6 +24,8 @@ test("uses stable command names and camelCase wallpaperId payloads", async () =>
     snapshot: "get_bing_wallpaper_snapshot",
     refresh: "refresh_bing_wallpapers",
     preview: "get_bing_wallpaper_preview",
+    readPreview: "read_bing_wallpaper_preview",
+    releasePreview: "release_bing_wallpaper_preview",
     save: "save_bing_wallpaper_to_downloads",
     apply: "apply_bing_wallpaper",
   });
@@ -29,6 +33,8 @@ test("uses stable command names and camelCase wallpaperId payloads", async () =>
     [BING_WALLPAPER_COMMANDS.snapshot, undefined],
     [BING_WALLPAPER_COMMANDS.refresh, undefined],
     [BING_WALLPAPER_COMMANDS.preview, { input: { wallpaperId: "wallpaper-1" } }],
+    [BING_WALLPAPER_COMMANDS.readPreview, { input: { token: "preview-token" } }],
+    [BING_WALLPAPER_COMMANDS.releasePreview, { input: { token: "preview-token" } }],
     [BING_WALLPAPER_COMMANDS.save, { input: { wallpaperId: "wallpaper-1" } }],
     [BING_WALLPAPER_COMMANDS.apply, { input: { wallpaperId: "wallpaper-1" } }],
   ]);

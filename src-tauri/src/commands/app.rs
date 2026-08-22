@@ -1,4 +1,9 @@
+use serde::Deserialize;
+use std::time::Duration;
 use tauri::{Manager, WebviewUrl};
+
+use crate::services::performance::{PerformancePhaseEvent, PerformanceTrace};
+use crate::services::surface_activity::show_surface;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AppShellWindow {
@@ -71,12 +76,71 @@ pub fn quit_app(app: tauri::AppHandle) {
     app.exit(0);
 }
 
+#[tauri::command]
+pub fn mark_frontend_ready(
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, PerformanceTrace>,
+) {
+    let label = window.label();
+    state.finish_since_origin(&format!("first_frontend_ready:{label}"), "ok");
+    state.finish_pending(&format!("surface_reveal:{label}"), "ok");
+}
+
+#[tauri::command]
+pub fn mark_surface_ready(window: tauri::WebviewWindow, state: tauri::State<'_, PerformanceTrace>) {
+    state.finish_pending(&format!("surface_reveal:{}", window.label()), "ok");
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginActivationMeasurementInput {
+    plugin_id: String,
+    first: bool,
+    duration_us: u64,
+}
+
+#[tauri::command]
+pub fn record_plugin_activation(
+    window: tauri::WebviewWindow,
+    input: PluginActivationMeasurementInput,
+    state: tauri::State<'_, PerformanceTrace>,
+) -> Result<(), String> {
+    if input.plugin_id.is_empty()
+        || input.plugin_id.len() > 128
+        || !input
+            .plugin_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_'))
+        || input.duration_us > 10 * 60 * 1_000_000
+    {
+        return Err("invalid plugin activation measurement".into());
+    }
+    let visit = if input.first { "first" } else { "repeat" };
+    state.record_duration(
+        &format!(
+            "plugin_activation:{visit}:{}:{}",
+            window.label(),
+            input.plugin_id
+        ),
+        "ok",
+        Duration::from_micros(input.duration_us),
+    );
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_performance_trace(
+    state: tauri::State<'_, PerformanceTrace>,
+) -> Vec<PerformancePhaseEvent> {
+    state.snapshot()
+}
+
 fn show_app_shell_window(app: &tauri::AppHandle, target: AppShellWindow) -> Result<(), String> {
     let options = target.options();
     promote_app_for_app_window(app);
 
     if let Some(existing) = app.get_webview_window(options.label) {
-        existing.show().map_err(|e| format!("显示窗口失败: {e}"))?;
+        show_surface(&existing).map_err(|e| format!("显示窗口失败: {e}"))?;
         existing
             .set_focus()
             .map_err(|e| format!("聚焦窗口失败: {e}"))?;
@@ -96,7 +160,7 @@ fn show_app_shell_window(app: &tauri::AppHandle, target: AppShellWindow) -> Resu
         .build()
         .map_err(|e| format!("创建窗口失败: {e}"))?;
 
-    window.show().map_err(|e| format!("显示窗口失败: {e}"))?;
+    show_surface(&window).map_err(|e| format!("显示窗口失败: {e}"))?;
     window
         .set_focus()
         .map_err(|e| format!("聚焦窗口失败: {e}"))?;

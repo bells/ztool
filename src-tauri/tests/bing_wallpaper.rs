@@ -166,6 +166,7 @@ fn item(id: &str, start_date: &str, cached: bool) -> BingWallpaperItem {
         copyright_url: None,
         remote_url: format!("https://www.bing.com/th?id=OHR.{id}"),
         cache_file_name: format!("{start_date}-{id}.jpg"),
+        preview_file_name: None,
         cached,
     }
 }
@@ -416,6 +417,73 @@ fn refresh_preserves_cache_on_http_failure_and_isolates_image_failures() {
     assert_eq!(
         snapshot.error.as_ref().map(|error| error.code.as_str()),
         Some("image.http_status")
+    );
+}
+
+#[test]
+fn concurrent_preview_requests_share_a_bounded_derivative_and_reference_counted_token() {
+    let root = TestDir::new("preview-single-flight");
+    let wallpaper = item("preview", "20260715", true);
+    write_cached_state(root.path(), &wallpaper);
+    let state = BingWallpaperState::new(root.path());
+
+    let (first, second) = tauri::async_runtime::block_on(async {
+        futures_util::future::join(state.preview("preview"), state.preview("preview")).await
+    });
+    let first = first.expect("first preview");
+    let second = second.expect("second preview");
+    assert_eq!(first, second);
+    assert_eq!(first.mime_type, "image/jpeg");
+    assert!(first.byte_length > 0 && first.byte_length <= 2 * 1024 * 1024);
+    assert!(first.width <= 960 && first.height <= 600);
+
+    let bytes = state
+        .read_preview_bytes(&first.token)
+        .expect("leased preview bytes");
+    assert_eq!(
+        image::guess_format(&bytes).unwrap(),
+        image::ImageFormat::Jpeg
+    );
+    assert_eq!(bytes.len() as u64, first.byte_length);
+
+    state.release_preview(&first.token);
+    assert!(state.read_preview_bytes(&first.token).is_ok());
+    state.release_preview(&second.token);
+    assert_eq!(
+        state.read_preview_bytes(&first.token).unwrap_err().code,
+        "preview.token"
+    );
+
+    let serialized = serde_json::to_value(first).expect("serialize preview descriptor");
+    assert!(serialized.get("dataUrl").is_none());
+    assert_eq!(serialized["mimeType"], "image/jpeg");
+}
+
+#[test]
+fn corrupt_preview_derivative_is_rebuilt_without_replacing_full_resolution_cache() {
+    let root = TestDir::new("preview-rebuild");
+    let wallpaper = item("rebuild", "20260715", true);
+    write_cached_state(root.path(), &wallpaper);
+    let state = BingWallpaperState::new(root.path());
+    let first = tauri::async_runtime::block_on(state.preview("rebuild")).unwrap();
+    let snapshot = state.snapshot();
+    let preview_name = snapshot.items[0]
+        .preview_file_name
+        .as_deref()
+        .expect("preview file name");
+    let full_image_before = fs::read(root.path().join(&wallpaper.cache_file_name)).unwrap();
+    fs::write(root.path().join(preview_name), b"corrupt preview").unwrap();
+    state.release_preview(&first.token);
+
+    let rebuilt = tauri::async_runtime::block_on(state.preview("rebuild")).unwrap();
+    let bytes = state.read_preview_bytes(&rebuilt.token).unwrap();
+    assert_eq!(
+        image::guess_format(&bytes).unwrap(),
+        image::ImageFormat::Jpeg
+    );
+    assert_eq!(
+        fs::read(root.path().join(&wallpaper.cache_file_name)).unwrap(),
+        full_image_before
     );
 }
 

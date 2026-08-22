@@ -358,8 +358,22 @@ pub fn status_bar_settings_path(config_dir: &Path) -> PathBuf {
 }
 
 pub fn refresh_status_bar(app: &tauri::AppHandle) -> Result<Vec<StatusBarItemSnapshot>, String> {
+    let settings_started = app
+        .state::<crate::services::performance::PerformanceTrace>()
+        .begin();
     let records = plugin_records(app)?;
-    let settings = ensure_status_bar_settings(app, &records)?;
+    let settings_result = ensure_status_bar_settings(app, &records);
+    app.state::<crate::services::performance::PerformanceTrace>()
+        .finish(
+            "status_bar_settings_load",
+            if settings_result.is_ok() {
+                "ok"
+            } else {
+                "error"
+            },
+            settings_started,
+        );
+    let settings = settings_result?;
     let caffeine_enabled = app
         .state::<CaffeineState>()
         .snapshot()
@@ -510,7 +524,8 @@ pub fn handle_status_bar_action(
                 toggle_caffeine_from_status_bar(app.clone())?;
             }
             StatusBarActionEffect::StartScreenshotCopy => {
-                crate::services::screenshot::start_screenshot_session(app.clone(), "copy".into())?;
+                crate::services::screenshot::start_screenshot_session(app.clone(), "copy".into())
+                    .map_err(|error| error.message)?;
             }
             StatusBarActionEffect::ShowMainWindow => {
                 crate::commands::app::show_main_window(app.clone())?;
@@ -827,33 +842,58 @@ fn show_grouped_status_item_menu(
 
 #[cfg(target_os = "macos")]
 fn composite_status_bar_image(
+    app: &tauri::AppHandle,
     items: &[StatusBarItemSnapshot],
     plugin_items_collapsed: bool,
 ) -> Result<Image<'static>, String> {
-    let ids = grouped_status_item_ids(items, plugin_items_collapsed);
-    let width = MACOS_STATUS_ITEM_CELL_SIZE * ids.len() as u32;
-    let mut composite = image::RgbaImage::new(width, MACOS_STATUS_ITEM_ICON_SIZE);
-    let left_padding = i64::from((MACOS_STATUS_ITEM_CELL_SIZE - MACOS_STATUS_ITEM_ICON_SIZE) / 2);
+    let trace = app.state::<crate::services::performance::PerformanceTrace>();
+    let composite_started = trace.begin();
+    let result = (|| {
+        let ids = grouped_status_item_ids(items, plugin_items_collapsed);
+        let width = MACOS_STATUS_ITEM_CELL_SIZE * ids.len() as u32;
+        let mut composite = image::RgbaImage::new(width, MACOS_STATUS_ITEM_ICON_SIZE);
+        let left_padding =
+            i64::from((MACOS_STATUS_ITEM_CELL_SIZE - MACOS_STATUS_ITEM_ICON_SIZE) / 2);
 
-    for (index, id) in ids.iter().enumerate() {
-        let icon = items
-            .iter()
-            .find(|item| &item.id == id)
-            .map(|item| &item.icon)
-            .ok_or_else(|| format!("grouped status bar item was not found: {id}"))?;
-        let decoded = image::load_from_memory(status_bar_icon_png_bytes(icon))
-            .map_err(|error| format!("failed to decode grouped status bar icon {icon:?}: {error}"))?
-            .to_rgba8();
-        let x = i64::try_from(index).unwrap_or(i64::MAX) * i64::from(MACOS_STATUS_ITEM_CELL_SIZE)
-            + left_padding;
-        image::imageops::overlay(&mut composite, &decoded, x, 0);
-    }
+        for (index, id) in ids.iter().enumerate() {
+            let icon = items
+                .iter()
+                .find(|item| &item.id == id)
+                .map(|item| &item.icon)
+                .ok_or_else(|| format!("grouped status bar item was not found: {id}"))?;
+            let decode_started = trace.begin();
+            let decoded_result =
+                image::load_from_memory(status_bar_icon_png_bytes(icon)).map_err(|error| {
+                    format!("failed to decode grouped status bar icon {icon:?}: {error}")
+                });
+            trace.finish(
+                "status_bar_icon_decode",
+                if decoded_result.is_ok() {
+                    "ok"
+                } else {
+                    "error"
+                },
+                decode_started,
+            );
+            let decoded = decoded_result?.to_rgba8();
+            let x = i64::try_from(index).unwrap_or(i64::MAX)
+                * i64::from(MACOS_STATUS_ITEM_CELL_SIZE)
+                + left_padding;
+            image::imageops::overlay(&mut composite, &decoded, x, 0);
+        }
 
-    Ok(Image::new_owned(
-        composite.into_raw(),
-        width,
-        MACOS_STATUS_ITEM_ICON_SIZE,
-    ))
+        Ok(Image::new_owned(
+            composite.into_raw(),
+            width,
+            MACOS_STATUS_ITEM_ICON_SIZE,
+        ))
+    })();
+    trace.finish(
+        "status_bar_composite_creation",
+        if result.is_ok() { "ok" } else { "error" },
+        composite_started,
+    );
+    result
 }
 
 fn apply_existing_status_bar_layout(
@@ -869,7 +909,11 @@ fn apply_existing_status_bar_layout(
 
         primary
             .set_icon_with_as_template(
-                Some(composite_status_bar_image(&items, plugin_items_collapsed)?),
+                Some(composite_status_bar_image(
+                    app,
+                    &items,
+                    plugin_items_collapsed,
+                )?),
                 true,
             )
             .map_err(|error| format!("failed to update grouped status bar icon: {error}"))?;
@@ -931,12 +975,12 @@ fn sync_primary_status_item(
 ) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     let icon = if support == StatusBarSupport::NativeMultiItem {
-        composite_status_bar_image(items, plugin_items_collapsed)?
+        composite_status_bar_image(app, items, plugin_items_collapsed)?
     } else {
-        status_bar_icon_image(&StatusBarIconId::Zero)?
+        traced_status_bar_icon_image(app, &StatusBarIconId::Zero)?
     };
     #[cfg(not(target_os = "macos"))]
-    let icon = status_bar_icon_image(&StatusBarIconId::Zero)?;
+    let icon = traced_status_bar_icon_image(app, &StatusBarIconId::Zero)?;
 
     let builder = TrayIconBuilder::with_id(PRIMARY_STATUS_ITEM_ID)
         .icon(icon)
@@ -1073,6 +1117,21 @@ fn status_bar_icon_image(icon: &StatusBarIconId) -> Result<Image<'static>, Strin
         .to_rgba8();
     let (width, height) = decoded.dimensions();
     Ok(Image::new_owned(decoded.into_raw(), width, height))
+}
+
+fn traced_status_bar_icon_image(
+    app: &tauri::AppHandle,
+    icon: &StatusBarIconId,
+) -> Result<Image<'static>, String> {
+    let trace = app.state::<crate::services::performance::PerformanceTrace>();
+    let started = trace.begin();
+    let result = status_bar_icon_image(icon);
+    trace.finish(
+        "status_bar_icon_decode",
+        if result.is_ok() { "ok" } else { "error" },
+        started,
+    );
+    result
 }
 
 pub fn status_bar_icon_png_bytes(icon: &StatusBarIconId) -> &'static [u8] {

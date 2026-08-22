@@ -70,6 +70,20 @@ export interface QuickLauncherIconResult {
   dataUrl?: string;
 }
 
+export interface QuickLauncherIconBatchInput {
+  items: QuickLauncherIconInput[];
+}
+
+export interface QuickLauncherIconBatchResult {
+  results: QuickLauncherIconResult[];
+}
+
+export interface QuickLauncherRunningSnapshot {
+  indexRevision: number;
+  runningRevision: number;
+  expiresAtMs: number;
+}
+
 export interface QuickLauncherError {
   operation: string;
   code: string;

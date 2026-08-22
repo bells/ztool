@@ -1,9 +1,6 @@
 import { FIRST_PARTY_PLUGIN_IDS } from "../../brand/identity";
 import type { BundledPluginModule } from "../../core/pluginHost/pluginModule";
 import { createScreenshotTranslator, screenshotMessages } from "./i18n";
-import { ScreenshotPanel } from "./ScreenshotPanel";
-import CaptureApp from "./capture/CaptureApp";
-import PinApp from "./capture/PinApp";
 
 export const screenshotPlugin: BundledPluginModule = {
   kind: "screenshot",
@@ -48,8 +45,13 @@ export const screenshotPlugin: BundledPluginModule = {
       subtitle: screenshotMessages["en-US"]["plugin.subtitle"],
     },
   },
-  renderPanel(language) {
-    return <ScreenshotPanel t={createScreenshotTranslator(language)} />;
+  loadPanel: () => import("./ScreenshotPanel").then(({ ScreenshotPanel }) => ({
+    default: ({ language }) => (
+      <ScreenshotPanel t={createScreenshotTranslator(language)} />
+    ),
+  })),
+  surfaces: {
+    capture: () => import("./capture/CaptureApp"),
+    pin: () => import("./capture/PinApp"),
   },
-  surfaces: { capture: CaptureApp, pin: PinApp },
 };

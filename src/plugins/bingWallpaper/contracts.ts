@@ -6,6 +6,7 @@ export interface BingWallpaperItem {
   copyrightUrl?: string;
   remoteUrl: string;
   cacheFileName: string;
+  previewFileName?: string;
   cached: boolean;
 }
 
@@ -32,7 +33,16 @@ export interface BingWallpaperSnapshot {
 
 export interface BingWallpaperPreview {
   wallpaperId: string;
-  dataUrl: string;
+  token: string;
+  mimeType: string;
+  byteLength: number;
+  width: number;
+  height: number;
+  expiresAtMs: number;
+}
+
+export interface BingWallpaperPreviewResourceInput {
+  token: string;
 }
 
 export interface BingWallpaperActionInput {

@@ -13,6 +13,7 @@ import type {
 
 export const FILE_CONVERSION_COMMANDS = {
   capabilities: "get_file_conversion_capabilities",
+  refreshCapabilities: "refresh_file_conversion_capabilities",
   choose: "choose_file_conversion_inputs",
   inspect: "inspect_file_conversion_inputs",
   enqueue: "enqueue_file_conversions",
@@ -59,6 +60,10 @@ export function createFileConversionService(
     getCapabilities: () =>
       invokeBridge<FileConversionCapabilitySnapshot>(
         FILE_CONVERSION_COMMANDS.capabilities,
+      ),
+    refreshCapabilities: () =>
+      invokeBridge<FileConversionCapabilitySnapshot>(
+        FILE_CONVERSION_COMMANDS.refreshCapabilities,
       ),
     chooseInputs: () =>
       invokeBridge<FileConversionCandidate[]>(FILE_CONVERSION_COMMANDS.choose),

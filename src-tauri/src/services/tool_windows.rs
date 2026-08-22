@@ -1,5 +1,7 @@
 use tauri::Manager;
 
+use crate::services::surface_activity::hide_surface;
+
 const TRAY_WINDOW_LABEL: &str = "tray";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,8 +42,7 @@ pub fn hide_tool_window(app: &tauri::AppHandle, tool: ToolWindowKind) -> Result<
 
 fn hide_window(app: &tauri::AppHandle, label: &str, display_name: &str) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(label) {
-        window
-            .hide()
+        hide_surface(&window)
             .map_err(|error| format!("failed to hide {display_name} window: {error}"))?;
     }
     Ok(())

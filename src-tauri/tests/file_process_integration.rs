@@ -86,7 +86,7 @@ mod process_integration {
             output.stdout,
             canonical_working_directory.to_string_lossy()[..8]
         );
-        assert_eq!(output.stderr.as_bytes().len(), 8);
+        assert_eq!(output.stderr.len(), 8);
         assert!(!working_directory.join("should-not-run").exists());
     }
 

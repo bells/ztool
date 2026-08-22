@@ -7,15 +7,36 @@ use crate::services::file::contracts::{
 };
 use crate::services::file::result_actions::CompletedOutputAction;
 use crate::services::file::runtime::{
-    run_file_conversion_worker, FILE_CONVERSION_JOB_UPDATED_EVENT,
+    run_file_conversion_worker, FileCapabilityInvalidationCause, FILE_CONVERSION_JOB_UPDATED_EVENT,
 };
 use crate::services::file::FileConversionState;
 
 #[tauri::command]
-pub fn get_file_conversion_capabilities(
-    state: State<'_, FileConversionState>,
-) -> FileConversionCapabilitySnapshot {
-    state.capabilities()
+pub async fn get_file_conversion_capabilities(
+    app: tauri::AppHandle,
+) -> Result<FileConversionCapabilitySnapshot, FileConversionError> {
+    ensure_initialized(&app)?;
+    let capability_app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        capability_app.state::<FileConversionState>().capabilities()
+    })
+    .await
+    .map_err(|_| command_error("The File capability worker stopped unexpectedly."))
+}
+
+#[tauri::command]
+pub async fn refresh_file_conversion_capabilities(
+    app: tauri::AppHandle,
+) -> Result<FileConversionCapabilitySnapshot, FileConversionError> {
+    ensure_initialized(&app)?;
+    let capability_app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = capability_app.state::<FileConversionState>();
+        state.invalidate_capabilities(FileCapabilityInvalidationCause::NativeProviderChanged);
+        state.capabilities()
+    })
+    .await
+    .map_err(|_| command_error("The File capability refresh worker stopped unexpectedly."))
 }
 
 #[tauri::command]
@@ -39,19 +60,26 @@ pub async fn choose_file_conversion_inputs(
 }
 
 #[tauri::command]
-pub fn inspect_file_conversion_inputs(
+pub async fn inspect_file_conversion_inputs(
     input: FileConversionInspectRequest,
-    state: State<'_, FileConversionState>,
-) -> Vec<FileConversionCandidate> {
-    state.inspect_paths(input.source_paths)
+    app: tauri::AppHandle,
+) -> Result<Vec<FileConversionCandidate>, FileConversionError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<FileConversionState>()
+            .inspect_paths(input.source_paths)
+    })
+    .await
+    .map_err(|_| command_error("The File input inspection worker stopped unexpectedly."))
 }
 
 #[tauri::command]
-pub fn enqueue_file_conversions(
+pub async fn enqueue_file_conversions(
     input: FileConversionEnqueueRequest,
-    state: State<'_, FileConversionState>,
+    app: tauri::AppHandle,
 ) -> Result<FileConversionBatchResult, FileConversionError> {
-    state.enqueue(input)
+    tauri::async_runtime::spawn_blocking(move || app.state::<FileConversionState>().enqueue(input))
+        .await
+        .map_err(|_| command_error("The File enqueue worker stopped unexpectedly."))?
 }
 
 #[tauri::command]
@@ -65,8 +93,12 @@ pub fn list_file_conversion_jobs(
 pub fn start_file_conversion_queue(
     app: tauri::AppHandle,
 ) -> Result<Vec<FileConversionJobSnapshot>, FileConversionError> {
+    ensure_initialized(&app)?;
     let state = app.state::<FileConversionState>();
     let (updates, should_spawn) = state.start()?;
+    app.state::<crate::services::file::engine_bridge::FileEngineBridgeState>()
+        .bridge
+        .cancel_idle_teardown();
     emit_updates(&app, &updates);
     if should_spawn {
         let worker_app = app.clone();
@@ -75,6 +107,29 @@ pub fn start_file_conversion_queue(
         });
     }
     Ok(updates)
+}
+
+fn ensure_initialized(app: &tauri::AppHandle) -> Result<(), FileConversionError> {
+    let trace = app.state::<crate::services::performance::PerformanceTrace>();
+    let started = trace.begin();
+    let temp_root = app
+        .path()
+        .app_cache_dir()
+        .map_err(|_| command_error("The Zero cache directory is unavailable."))?
+        .join("file-conversion");
+    let bridge = std::sync::Arc::clone(
+        &app.state::<crate::services::file::engine_bridge::FileEngineBridgeState>()
+            .bridge,
+    );
+    let result =
+        app.state::<FileConversionState>()
+            .initialize_with_engine(app.clone(), bridge, temp_root);
+    trace.finish(
+        "file_initialization",
+        if result.is_ok() { "ok" } else { "error" },
+        started,
+    );
+    result
 }
 
 #[tauri::command]
@@ -113,19 +168,29 @@ pub fn clear_completed_file_conversion_jobs(
 }
 
 #[tauri::command]
-pub fn open_file_conversion_output(
+pub async fn open_file_conversion_output(
     input: FileConversionJobRequest,
-    state: State<'_, FileConversionState>,
+    app: tauri::AppHandle,
 ) -> Result<(), FileConversionError> {
-    state.run_completed_output_action(&input.job_id, CompletedOutputAction::Open)
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<FileConversionState>()
+            .run_completed_output_action(&input.job_id, CompletedOutputAction::Open)
+    })
+    .await
+    .map_err(|_| command_error("The File output-open worker stopped unexpectedly."))?
 }
 
 #[tauri::command]
-pub fn reveal_file_conversion_output(
+pub async fn reveal_file_conversion_output(
     input: FileConversionJobRequest,
-    state: State<'_, FileConversionState>,
+    app: tauri::AppHandle,
 ) -> Result<(), FileConversionError> {
-    state.run_completed_output_action(&input.job_id, CompletedOutputAction::Reveal)
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<FileConversionState>()
+            .run_completed_output_action(&input.job_id, CompletedOutputAction::Reveal)
+    })
+    .await
+    .map_err(|_| command_error("The File output-reveal worker stopped unexpectedly."))?
 }
 
 fn emit_updates(app: &tauri::AppHandle, updates: &[FileConversionJobSnapshot]) {

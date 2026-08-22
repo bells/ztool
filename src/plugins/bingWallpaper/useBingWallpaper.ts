@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSurfaceActivity } from "../../core/windowing/useSurfaceActivity";
 
 import {
   createActionGate,
@@ -6,6 +7,8 @@ import {
   errorMessage,
   loadBingWallpaperCacheFirst,
   nextBingWallpaperReloadVersion,
+  previewBytesMatchDescriptor,
+  shouldStartBingWallpaperPresentation,
 } from "./bingWallpaperController";
 import {
   createBingWallpaperNavigation,
@@ -18,18 +21,23 @@ import { bingWallpaperService } from "./bingWallpaperService";
 import type { BingWallpaperService } from "./bingWallpaperServiceCore";
 import type {
   BingWallpaperActionResult,
-  BingWallpaperPreview,
   BingWallpaperSnapshot,
 } from "./contracts";
 
 export type BingWallpaperActionStatus = "applied" | "saved" | null;
 
+interface BingWallpaperPreviewView {
+  wallpaperId: string;
+  resourceUrl: string;
+}
+
 export function useBingWallpaper(
   service: BingWallpaperService = bingWallpaperService,
 ) {
+  const activity = useSurfaceActivity();
   const [snapshot, setSnapshot] = useState<BingWallpaperSnapshot | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [preview, setPreview] = useState<BingWallpaperPreview | null>(null);
+  const [preview, setPreview] = useState<BingWallpaperPreviewView | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
@@ -50,6 +58,10 @@ export function useBingWallpaper(
   }, []);
 
   useEffect(() => {
+    if (!shouldStartBingWallpaperPresentation(activity)) {
+      setIsRefreshing(false);
+      return;
+    }
     const gate = createRequestGate();
     let snapshotCount = 0;
     setIsLoading(true);
@@ -79,7 +91,7 @@ export function useBingWallpaper(
     );
 
     return gate.dispose;
-  }, [reloadVersion, service]);
+  }, [activity, reloadVersion, service]);
 
   const navigation = useMemo(
     () => createBingWallpaperNavigation(snapshot?.items ?? [], selectedId),
@@ -88,25 +100,53 @@ export function useBingWallpaper(
 
   useEffect(() => {
     const selected = navigation.selected;
-    if (!selected) {
+    if (!shouldStartBingWallpaperPresentation(activity) || !selected) {
       setPreview(null);
       setIsPreviewLoading(false);
       return;
     }
 
     const gate = createRequestGate();
+    let ownedToken: string | null = null;
+    let ownedResourceUrl: string | null = null;
+    const releaseOwnedPreview = () => {
+      if (ownedResourceUrl) {
+        URL.revokeObjectURL(ownedResourceUrl);
+        ownedResourceUrl = null;
+      }
+      if (ownedToken) {
+        void service.releasePreview({ token: ownedToken }).catch(() => undefined);
+        ownedToken = null;
+      }
+    };
     setPreview((current) =>
       current?.wallpaperId === selected.id ? current : null);
     setIsPreviewLoading(true);
 
     void service.preview({ wallpaperId: selected.id })
-      .then((nextPreview) => {
-        if (gate.isCurrent()) {
-          setPreview(nextPreview);
-          setError(null);
+      .then(async (descriptor) => {
+        ownedToken = descriptor.token;
+        if (!gate.isCurrent()) {
+          releaseOwnedPreview();
+          return;
         }
+        const buffer = await service.readPreview({ token: descriptor.token });
+        if (!gate.isCurrent()) {
+          releaseOwnedPreview();
+          return;
+        }
+        const bytes = new Uint8Array(buffer);
+        if (!previewBytesMatchDescriptor(bytes.byteLength, descriptor.byteLength)) {
+          throw new Error("Wallpaper preview bytes did not match their descriptor.");
+        }
+        ownedResourceUrl = URL.createObjectURL(
+          new Blob([bytes], { type: descriptor.mimeType }),
+        );
+        setPreview({ wallpaperId: descriptor.wallpaperId, resourceUrl: ownedResourceUrl });
+        setError(null);
       })
       .catch((previewError: unknown) => {
+        releaseOwnedPreview();
         if (gate.isCurrent()) {
           setPreview(null);
           setError(errorMessage(previewError));
@@ -118,8 +158,11 @@ export function useBingWallpaper(
         }
       });
 
-    return gate.dispose;
-  }, [navigation.selected?.id, service]);
+    return () => {
+      gate.dispose();
+      releaseOwnedPreview();
+    };
+  }, [activity, navigation.selected?.id, service]);
 
   const selectOlder = useCallback(() => {
     setSelectedId((current) =>

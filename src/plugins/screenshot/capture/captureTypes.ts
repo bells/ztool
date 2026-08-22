@@ -80,12 +80,39 @@ export type AnnotationObject =
   | MosaicAnnotation
   | PinAnnotation;
 
-export interface CaptureSession {
-  session_id: string;
-  image_base64: string;
-  initial_action: "copy" | "save";
+export interface ScreenshotMediaDescriptor {
+  token: string;
+  mimeType: "image/png";
+  byteLength: number;
   width: number;
   height: number;
+  expiresAtMs: number | null;
+}
+
+export interface CaptureSession {
+  sessionId: string;
+  initialAction: "copy" | "save";
+  media: ScreenshotMediaDescriptor;
+}
+
+export interface ScreenshotUploadLease {
+  token: string;
+  sessionId: string;
+  action: "copy" | "save" | "pin";
+  maxBytes: number;
+  expiresAtMs: number;
+}
+
+export interface ScreenshotCommitResult {
+  copied: boolean;
+  savedPath: string | null;
+  pinWindowLabel: string | null;
+}
+
+export interface ScreenshotError {
+  code: string;
+  message: string;
+  retryable: boolean;
 }
 
 export interface HistoryState {

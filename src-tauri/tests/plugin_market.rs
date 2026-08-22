@@ -28,7 +28,7 @@ fn parses_and_caches_valid_market_json() {
 
     assert_eq!(snapshot.source_url, DEFAULT_PLUGIN_MARKET_URL);
     assert_eq!(snapshot.entries.len(), 1);
-    assert_eq!(snapshot.entries[0].download_url.ends_with(".zplugin"), true);
+    assert!(snapshot.entries[0].download_url.ends_with(".zplugin"));
     assert_eq!(cache.cached_snapshot().expect("cached").entries.len(), 1);
 }
 

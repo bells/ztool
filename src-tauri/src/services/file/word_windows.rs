@@ -2,7 +2,7 @@ use std::ffi::OsString;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use super::artifacts::validate_provider_output;
@@ -79,8 +79,8 @@ struct WordWindowsInstallation {
 }
 
 pub struct MicrosoftWordWindowsProvider {
-    installation: Option<WordWindowsInstallation>,
-    powershell_path: Option<PathBuf>,
+    installation: Mutex<Option<WordWindowsInstallation>>,
+    powershell_path: Mutex<Option<PathBuf>>,
     process_runner: Arc<dyn DirectProcessRunner>,
     timeout: Duration,
     platform_supported: bool,
@@ -89,8 +89,8 @@ pub struct MicrosoftWordWindowsProvider {
 impl Default for MicrosoftWordWindowsProvider {
     fn default() -> Self {
         Self {
-            installation: detect_word_installation(),
-            powershell_path: detect_powershell(),
+            installation: Mutex::new(detect_word_installation()),
+            powershell_path: Mutex::new(detect_powershell()),
             process_runner: Arc::new(SystemProcessRunner),
             timeout: WORD_CONVERSION_TIMEOUT,
             platform_supported: cfg!(target_os = "windows"),
@@ -106,8 +106,8 @@ impl MicrosoftWordWindowsProvider {
         process_runner: Arc<dyn DirectProcessRunner>,
     ) -> Self {
         Self {
-            installation,
-            powershell_path,
+            installation: Mutex::new(installation),
+            powershell_path: Mutex::new(powershell_path),
             process_runner,
             timeout: Duration::from_secs(1),
             platform_supported: true,
@@ -125,6 +125,16 @@ impl FileConversionProvider for MicrosoftWordWindowsProvider {
     }
 
     fn probe(&self) -> FileConversionProviderSnapshot {
+        let installation = self
+            .installation
+            .lock()
+            .ok()
+            .and_then(|installation| installation.clone());
+        let powershell_path = self
+            .powershell_path
+            .lock()
+            .ok()
+            .and_then(|path| path.clone());
         let unavailable =
             |code, message, retryable| FileConversionProviderAvailability::Unavailable {
                 error: word_error(code, message, retryable),
@@ -138,11 +148,7 @@ impl FileConversionProvider for MicrosoftWordWindowsProvider {
                     false,
                 ),
             )
-        } else if self
-            .powershell_path
-            .as_ref()
-            .is_none_or(|path| !path.is_file())
-        {
+        } else if powershell_path.as_ref().is_none_or(|path| !path.is_file()) {
             (
                 None,
                 unavailable(
@@ -151,7 +157,7 @@ impl FileConversionProvider for MicrosoftWordWindowsProvider {
                     false,
                 ),
             )
-        } else if let Some(installation) = &self.installation {
+        } else if let Some(installation) = &installation {
             let availability = if !installation.executable_path.is_file() {
                 unavailable(
                     FileConversionErrorCode::EngineUnavailable,
@@ -192,6 +198,15 @@ impl FileConversionProvider for MicrosoftWordWindowsProvider {
         }
     }
 
+    fn invalidate(&self) {
+        if let Ok(mut installation) = self.installation.lock() {
+            *installation = detect_word_installation();
+        }
+        if let Ok(mut powershell_path) = self.powershell_path.lock() {
+            *powershell_path = detect_powershell();
+        }
+    }
+
     fn convert(
         &self,
         request: &ProviderConversionRequest,
@@ -210,13 +225,18 @@ impl FileConversionProvider for MicrosoftWordWindowsProvider {
             FileConversionProviderAvailability::Unavailable { error } => return Err(error),
         }
         cancellation.check()?;
-        let powershell_path = self.powershell_path.clone().ok_or_else(|| {
-            word_error(
-                FileConversionErrorCode::ProviderActivationFailed,
-                "Windows PowerShell is no longer available.",
-                true,
-            )
-        })?;
+        let powershell_path = self
+            .powershell_path
+            .lock()
+            .ok()
+            .and_then(|path| path.clone())
+            .ok_or_else(|| {
+                word_error(
+                    FileConversionErrorCode::ProviderActivationFailed,
+                    "Windows PowerShell is no longer available.",
+                    true,
+                )
+            })?;
         let script_path = request.temp_directory.join("zero-word-convert.ps1");
         write_private_script(&script_path)?;
         let output = request.temp_directory.join("provider-output.pdf");

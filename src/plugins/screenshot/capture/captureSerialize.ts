@@ -1,44 +1,31 @@
-import type { AnnotationObject } from "./captureTypes";
+import type { AnnotationObject, ScreenshotUploadLease } from "./captureTypes";
 
-export interface CommitScreenshotPayload {
-  sessionId: string;
-  action: "copy" | "save";
-  pngBase64: string;
-  savePath?: string;
-}
+export type ScreenshotCommitAction = "copy" | "save" | "pin";
 
 export function serializeAnnotationObject(annotation: AnnotationObject): AnnotationObject {
   return structuredClone(annotation);
 }
 
-export function buildCommitScreenshotPayload(input: CommitScreenshotPayload): {
+export function buildPrepareScreenshotCommitPayload(
+  sessionId: string,
+  action: ScreenshotCommitAction,
+): {
   input: {
-    session_id: string;
-    action: "copy" | "save";
-    png_base64: string;
-    save_path?: string;
+    sessionId: string;
+    action: ScreenshotCommitAction;
   };
 } {
-  return {
-    input: {
-      session_id: input.sessionId,
-      action: input.action,
-      png_base64: input.pngBase64,
-      ...(input.savePath ? { save_path: input.savePath } : {}),
-    },
-  };
+  return { input: { sessionId, action } };
 }
 
-export function buildPinScreenshotPayload(sessionId: string, pngBase64: string): {
-  input: {
-    session_id: string;
-    png_base64: string;
-  };
+export function buildScreenshotUploadOptions(lease: ScreenshotUploadLease): {
+  headers: Record<string, string>;
 } {
   return {
-    input: {
-      session_id: sessionId,
-      png_base64: pngBase64,
+    headers: {
+      "x-zero-screenshot-lease": lease.token,
+      "x-zero-screenshot-session": lease.sessionId,
+      "x-zero-screenshot-action": lease.action,
     },
   };
 }

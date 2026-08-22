@@ -13,7 +13,9 @@ use super::provider::{
     provider_error, FileConversionProvider as FileConversionProviderAdapter,
     FileConversionProviderRegistry, ProviderPlatform,
 };
+#[cfg(target_os = "macos")]
 use super::word_macos::MicrosoftWordMacosProvider;
+#[cfg(target_os = "windows")]
 use super::word_windows::MicrosoftWordWindowsProvider;
 
 pub const PDF_TO_DOCX_PROVIDER_APPROVED: bool = true;
@@ -25,20 +27,22 @@ pub fn default_provider_registry(
 ) -> FileConversionProviderRegistry {
     let libreoffice_discovery = Arc::new(LibreOfficeDiscovery::default());
     let mut providers: Vec<Arc<dyn FileConversionProviderAdapter>> = Vec::new();
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     if let Some(app) = app {
         providers.push(Arc::new(ZeroFileBuiltInProvider::pdf_to_docx(
             app.clone(),
             Arc::clone(&bridge),
         )));
+        #[cfg(target_os = "macos")]
         providers.push(Arc::new(ZeroFileBuiltInProvider::docx_to_pdf_macos(
             app, bridge,
         )));
     }
-    providers.extend([
-        Arc::new(LibreOfficeProvider::new(libreoffice_discovery)),
-        Arc::new(MicrosoftWordMacosProvider::default()),
-        Arc::new(MicrosoftWordWindowsProvider::default()),
-    ] as [Arc<dyn FileConversionProviderAdapter>; 3]);
+    providers.push(Arc::new(LibreOfficeProvider::new(libreoffice_discovery)));
+    #[cfg(target_os = "macos")]
+    providers.push(Arc::new(MicrosoftWordMacosProvider::default()));
+    #[cfg(target_os = "windows")]
+    providers.push(Arc::new(MicrosoftWordWindowsProvider::default()));
     FileConversionProviderRegistry::new(providers)
 }
 

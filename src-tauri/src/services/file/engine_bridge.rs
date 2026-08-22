@@ -14,6 +14,7 @@ use tauri::{Emitter, Manager, WebviewUrl};
 use crate::brand::ZERO_FILE_PLUGIN_ID;
 use crate::plugins::engine_assets::FILE_ENGINE_SCHEME;
 use crate::plugins::registry::{ActivePluginEngine, PluginRegistryState};
+use crate::services::surface_activity::destroy_surface;
 
 use super::contracts::{
     FileConversionDirection, FileConversionError, FileConversionErrorCode, FileConversionProgress,
@@ -35,6 +36,7 @@ const MAX_OUTPUT_BYTES: usize = 768 * 1024 * 1024;
 const ENGINE_STARTUP_TIMEOUT: Duration = Duration::from_secs(2);
 const ENGINE_JOB_TIMEOUT: Duration = Duration::from_secs(120);
 const ENGINE_COMPLETION_POLL_INTERVAL: Duration = Duration::from_millis(50);
+const ENGINE_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -188,6 +190,39 @@ struct EngineSession {
 struct EngineRuntime {
     ready_version: Option<String>,
     sessions: HashMap<String, EngineSession>,
+    lifecycle_generation: u64,
+    scheduled_idle_generation: Option<u64>,
+}
+
+impl EngineRuntime {
+    fn begin_work(&mut self) {
+        self.lifecycle_generation = self.lifecycle_generation.saturating_add(1);
+        self.scheduled_idle_generation = None;
+    }
+
+    fn schedule_idle_teardown(&mut self) -> Option<u64> {
+        if !self.sessions.is_empty() || self.ready_version.is_none() {
+            return None;
+        }
+        self.lifecycle_generation = self.lifecycle_generation.saturating_add(1);
+        self.scheduled_idle_generation = Some(self.lifecycle_generation);
+        self.scheduled_idle_generation
+    }
+
+    fn claim_idle_teardown(&mut self, generation: u64) -> bool {
+        if self.scheduled_idle_generation != Some(generation) || !self.sessions.is_empty() {
+            return false;
+        }
+        self.scheduled_idle_generation = None;
+        self.ready_version = None;
+        true
+    }
+
+    fn reset(&mut self) {
+        self.lifecycle_generation = self.lifecycle_generation.saturating_add(1);
+        self.scheduled_idle_generation = None;
+        self.ready_version = None;
+    }
 }
 
 #[derive(Default)]
@@ -215,6 +250,7 @@ impl FileEngineBridge {
         cancellation: &FileConversionCancellationToken,
     ) -> Result<ProviderConversionOutput, FileConversionError> {
         cancellation.check()?;
+        self.cancel_idle_teardown();
         let leased_engine = acquire_engine(app)?;
         let engine_version = leased_engine.engine.package_version.clone();
         let input_name = match request.direction {
@@ -230,6 +266,7 @@ impl FileEngineBridge {
         let mut issued_token = None;
         let result = (|| {
             stage_validated_input(&request.source_path, &input_path)?;
+            self.ensure_window_ready(app, &leased_engine)?;
             let (sender, receiver) = mpsc::channel();
             let token = random_token()?;
             issued_token = Some(token.clone());
@@ -251,7 +288,6 @@ impl FileEngineBridge {
                     },
                 );
 
-            self.ensure_window_ready(app, &leased_engine)?;
             app.emit_to(
                 FILE_ENGINE_LABEL,
                 FILE_ENGINE_RUN_EVENT,
@@ -284,6 +320,14 @@ impl FileEngineBridge {
             self.revoke(&token);
         }
         release_engine(app, &leased_engine);
+        if result.as_ref().is_err_and(|error| {
+            matches!(
+                error.code,
+                FileConversionErrorCode::Cancelled | FileConversionErrorCode::Timeout
+            )
+        }) {
+            self.reset_and_destroy(app, "The built-in engine job ended before completion.");
+        }
         match result {
             Ok(completion) => Ok(ProviderConversionOutput {
                 path: output_path,
@@ -314,84 +358,32 @@ impl FileEngineBridge {
             .as_deref()
             .is_some_and(|version| version != expected_version)
         {
-            if let Some(window) = app.get_webview_window(FILE_ENGINE_LABEL) {
-                let _ = window.destroy();
-            }
-            if let Ok(mut runtime) = self.runtime.lock() {
-                runtime.ready_version = None;
-            }
+            self.reset_and_destroy(
+                app,
+                "The built-in engine version changed while a session was active.",
+            );
         }
-        if app.get_webview_window(FILE_ENGINE_LABEL).is_none() {
-            let (sender, receiver) = mpsc::sync_channel(1);
-            let engine_app = app.clone();
-            let bridge = Arc::clone(self);
-            let window_url = if leased_engine.installed {
-                tauri::Url::parse(&format!(
-                    "{FILE_ENGINE_SCHEME}://localhost/{expected_version}/index.html"
-                ))
-                .map(WebviewUrl::CustomProtocol)
-                .map_err(|_| bridge_error("The installed File engine URL is invalid."))?
-            } else {
-                WebviewUrl::App("index.html".into())
-            };
-            app.run_on_main_thread(move || {
-                let result = (|| {
-                    if engine_app.get_webview_window(FILE_ENGINE_LABEL).is_some() {
-                        return Ok(());
-                    }
-                    let window = tauri::WebviewWindowBuilder::new(
-                        &engine_app,
-                        FILE_ENGINE_LABEL,
-                        window_url,
-                    )
-                    .title("Zero File Engine")
-                    .visible(false)
-                    .decorations(false)
-                    .skip_taskbar(true)
-                    .inner_size(900.0, 1200.0)
-                    .disable_drag_drop_handler()
-                    .on_navigation(|url| {
-                        matches!(url.scheme(), "tauri" | "ipc" | FILE_ENGINE_SCHEME)
-                            || url.host_str().is_some_and(|host| {
-                                host == "tauri.localhost"
-                                    || (cfg!(debug_assertions) && host == "localhost")
-                            })
-                    })
-                    .build()
-                    .map_err(|_| {
-                        bridge_error("The isolated built-in engine WebView could not start.")
-                    })?;
-                    window.on_window_event(move |event| {
-                        if matches!(event, tauri::WindowEvent::Destroyed) {
-                            bridge.fail_all_sessions(
-                                "The built-in engine WebView stopped unexpectedly.",
-                            );
-                        }
-                    });
-                    Ok(())
-                })();
-                let _ = sender.send(result);
-            })
-            .map_err(|_| bridge_error("The isolated built-in engine WebView could not start."))?;
-            receiver
-                .recv_timeout(ENGINE_STARTUP_TIMEOUT)
-                .map_err(|_| {
-                    bridge_error("The isolated built-in engine WebView did not start in time.")
-                })??;
-        }
-        let runtime = self
-            .runtime
-            .lock()
-            .map_err(|_| bridge_error("The built-in engine readiness state is unavailable."))?;
-        let (runtime, timeout) = self
-            .ready
-            .wait_timeout_while(runtime, ENGINE_STARTUP_TIMEOUT, |runtime| {
-                runtime.ready_version.as_deref() != Some(expected_version.as_str())
-            })
-            .map_err(|_| bridge_error("The built-in engine readiness wait failed."))?;
-        if timeout.timed_out()
-            || runtime.ready_version.as_deref() != Some(expected_version.as_str())
-        {
+        for attempt in 0..2 {
+            self.create_window_if_missing(app, leased_engine, &expected_version)?;
+            let runtime = self
+                .runtime
+                .lock()
+                .map_err(|_| bridge_error("The built-in engine readiness state is unavailable."))?;
+            let (runtime, timeout) = self
+                .ready
+                .wait_timeout_while(runtime, ENGINE_STARTUP_TIMEOUT, |runtime| {
+                    runtime.ready_version.as_deref() != Some(expected_version.as_str())
+                })
+                .map_err(|_| bridge_error("The built-in engine readiness wait failed."))?;
+            if !timeout.timed_out()
+                && runtime.ready_version.as_deref() == Some(expected_version.as_str())
+            {
+                return Ok(());
+            }
+            drop(runtime);
+            if attempt == 0 && app.get_webview_window(FILE_ENGINE_LABEL).is_none() {
+                continue;
+            }
             return Err(provider_error(
                 FileConversionErrorCode::Timeout,
                 "The built-in engine did not become ready in time.",
@@ -399,6 +391,72 @@ impl FileEngineBridge {
                 None,
             ));
         }
+        Err(bridge_error(
+            "The built-in engine readiness retry was exhausted.",
+        ))
+    }
+
+    fn create_window_if_missing(
+        self: &Arc<Self>,
+        app: &tauri::AppHandle,
+        leased_engine: &LeasedEngine,
+        expected_version: &str,
+    ) -> Result<(), FileConversionError> {
+        if app.get_webview_window(FILE_ENGINE_LABEL).is_some() {
+            return Ok(());
+        }
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let engine_app = app.clone();
+        let bridge = Arc::clone(self);
+        let window_url = if leased_engine.installed {
+            tauri::Url::parse(&format!(
+                "{FILE_ENGINE_SCHEME}://localhost/{expected_version}/index.html"
+            ))
+            .map(WebviewUrl::CustomProtocol)
+            .map_err(|_| bridge_error("The installed File engine URL is invalid."))?
+        } else {
+            WebviewUrl::App("index.html".into())
+        };
+        app.run_on_main_thread(move || {
+            let result = (|| {
+                if engine_app.get_webview_window(FILE_ENGINE_LABEL).is_some() {
+                    return Ok(());
+                }
+                let window =
+                    tauri::WebviewWindowBuilder::new(&engine_app, FILE_ENGINE_LABEL, window_url)
+                        .title("Zero File Engine")
+                        .visible(false)
+                        .decorations(false)
+                        .skip_taskbar(true)
+                        .inner_size(900.0, 1200.0)
+                        .disable_drag_drop_handler()
+                        .on_navigation(|url| {
+                            matches!(url.scheme(), "tauri" | "ipc" | FILE_ENGINE_SCHEME)
+                                || url.host_str().is_some_and(|host| {
+                                    host == "tauri.localhost"
+                                        || (cfg!(debug_assertions) && host == "localhost")
+                                })
+                        })
+                        .build()
+                        .map_err(|_| {
+                            bridge_error("The isolated built-in engine WebView could not start.")
+                        })?;
+                window.on_window_event(move |event| {
+                    if matches!(event, tauri::WindowEvent::Destroyed) {
+                        bridge
+                            .fail_all_sessions("The built-in engine WebView stopped unexpectedly.");
+                    }
+                });
+                Ok(())
+            })();
+            let _ = sender.send(result);
+        })
+        .map_err(|_| bridge_error("The isolated built-in engine WebView could not start."))?;
+        receiver
+            .recv_timeout(ENGINE_STARTUP_TIMEOUT)
+            .map_err(|_| {
+                bridge_error("The isolated built-in engine WebView did not start in time.")
+            })??;
         Ok(())
     }
 
@@ -453,15 +511,55 @@ impl FileEngineBridge {
         }
     }
 
+    pub fn cancel_idle_teardown(&self) {
+        if let Ok(mut runtime) = self.runtime.lock() {
+            runtime.begin_work();
+        }
+    }
+
+    pub fn schedule_idle_teardown(self: &Arc<Self>, app: &tauri::AppHandle) {
+        let generation = self
+            .runtime
+            .lock()
+            .ok()
+            .and_then(|mut runtime| runtime.schedule_idle_teardown());
+        let Some(generation) = generation else {
+            return;
+        };
+        let idle_app = app.clone();
+        let bridge = Arc::clone(self);
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(ENGINE_IDLE_TIMEOUT).await;
+            let should_destroy = bridge
+                .runtime
+                .lock()
+                .map(|mut runtime| runtime.claim_idle_teardown(generation))
+                .unwrap_or(false);
+            if should_destroy {
+                if let Some(window) = idle_app.get_webview_window(FILE_ENGINE_LABEL) {
+                    let _ = destroy_surface(&window);
+                }
+            }
+        });
+    }
+
+    pub fn reset_and_destroy(&self, app: &tauri::AppHandle, message: &str) {
+        self.fail_all_sessions(message);
+        if let Some(window) = app.get_webview_window(FILE_ENGINE_LABEL) {
+            let _ = destroy_surface(&window);
+        }
+    }
+
     fn fail_all_sessions(&self, message: &str) {
         if let Ok(mut runtime) = self.runtime.lock() {
-            runtime.ready_version = None;
+            runtime.reset();
             for (_, session) in runtime.sessions.drain() {
                 let _ = session
                     .sender
                     .send(EngineMessage::Failed(bridge_error(message)));
             }
         }
+        self.ready.notify_all();
     }
 
     fn validate_session<'a>(
@@ -488,22 +586,26 @@ impl FileEngineBridge {
 }
 
 #[tauri::command]
-pub fn file_engine_ready(
+pub async fn file_engine_ready(
     window: tauri::WebviewWindow,
     state: tauri::State<'_, FileEngineBridgeState>,
     request: FileEngineReadyRequest,
 ) -> Result<(), String> {
     require_engine_window(&window)?;
-    let trusted_version = window
-        .app_handle()
-        .state::<PluginRegistryState>()
-        .with_registry(|registry| {
-            registry
-                .engine_asset_root(FILE_ENGINE_PLUGIN_ID, &request.engine_version)
-                .map(|_| true)
-        })
-        .unwrap_or(false)
-        || development_assets_enabled() && request.engine_version == FILE_ENGINE_VERSION;
+    let app = window.app_handle().clone();
+    let requested_version = request.engine_version.clone();
+    let trusted_version = tauri::async_runtime::spawn_blocking(move || {
+        app.state::<PluginRegistryState>()
+            .with_registry(|registry| {
+                registry
+                    .engine_asset_root(FILE_ENGINE_PLUGIN_ID, &requested_version)
+                    .map(|_| true)
+            })
+            .unwrap_or(false)
+            || development_assets_enabled() && requested_version == FILE_ENGINE_VERSION
+    })
+    .await
+    .map_err(|_| "The File engine readiness worker stopped unexpectedly.".to_string())?;
     if request.protocol_version != FILE_ENGINE_PROTOCOL_VERSION
         || request.plugin_id != FILE_ENGINE_PLUGIN_ID
         || !trusted_version
@@ -521,44 +623,57 @@ pub fn file_engine_ready(
 }
 
 #[tauri::command]
-pub fn file_engine_read_input(
+pub async fn file_engine_read_input(
     window: tauri::WebviewWindow,
     state: tauri::State<'_, FileEngineBridgeState>,
     request: tauri::ipc::Request<'_>,
 ) -> Result<tauri::ipc::Response, String> {
     require_engine_window(&window)?;
-    let token = token_header(&request)?;
-    let runtime = state
-        .bridge
-        .runtime
-        .lock()
-        .map_err(|_| "The File engine session store is unavailable.".to_string())?;
-    let session = FileEngineBridge::validate_session(
-        &runtime,
-        token,
-        job_header(&request),
-        Some(engine_header(&request)?),
-    )?;
-    let metadata = fs::metadata(&session.input_path)
-        .map_err(|_| "The staged File engine input is missing.".to_string())?;
-    if metadata.len() == 0 || metadata.len() > MAX_INPUT_BYTES {
-        return Err("The staged File engine input size is invalid.".into());
-    }
-    let bytes = fs::read(&session.input_path)
-        .map_err(|_| "The staged File engine input could not be read.".to_string())?;
+    let token = token_header(&request)?.to_string();
+    let job_id = job_header(&request).map(str::to_string);
+    let engine_version = engine_header(&request)?.to_string();
+    let bridge = Arc::clone(&state.bridge);
+    let app = window.app_handle().clone();
+    let bytes = tauri::async_runtime::spawn_blocking(move || {
+        let runtime = bridge
+            .runtime
+            .lock()
+            .map_err(|_| "The File engine session store is unavailable.".to_string())?;
+        let input_path = FileEngineBridge::validate_session(
+            &runtime,
+            &token,
+            job_id.as_deref(),
+            Some(&engine_version),
+        )?
+        .input_path
+        .clone();
+        drop(runtime);
+        let metadata = fs::metadata(&input_path)
+            .map_err(|_| "The staged File engine input is missing.".to_string())?;
+        if metadata.len() == 0 || metadata.len() > MAX_INPUT_BYTES {
+            return Err("The staged File engine input size is invalid.".into());
+        }
+        fs::read(&input_path)
+            .map_err(|_| "The staged File engine input could not be read.".to_string())
+    })
+    .await
+    .map_err(|_| "The File engine input worker stopped unexpectedly.".to_string())??;
+    crate::services::performance::record_media_transfer(&app, "file_engine_read", bytes.len());
     Ok(tauri::ipc::Response::new(bytes))
 }
 
 #[tauri::command]
-pub fn file_engine_write_output(
+pub async fn file_engine_write_output(
     window: tauri::WebviewWindow,
     state: tauri::State<'_, FileEngineBridgeState>,
     request: tauri::ipc::Request<'_>,
 ) -> Result<(), String> {
     require_engine_window(&window)?;
-    let token = token_header(&request)?;
+    let token = token_header(&request)?.to_string();
+    let job_id = job_header(&request).map(str::to_string);
+    let engine_version = engine_header(&request)?.to_string();
     let bytes = match request.body() {
-        tauri::ipc::InvokeBody::Raw(bytes) => bytes,
+        tauri::ipc::InvokeBody::Raw(bytes) => bytes.clone(),
         tauri::ipc::InvokeBody::Json(_) => {
             return Err("The File engine output must use raw binary IPC.".into())
         }
@@ -566,22 +681,32 @@ pub fn file_engine_write_output(
     if bytes.is_empty() || bytes.len() > MAX_OUTPUT_BYTES {
         return Err("The File engine output size is invalid.".into());
     }
-    let runtime = state
-        .bridge
-        .runtime
-        .lock()
-        .map_err(|_| "The File engine session store is unavailable.".to_string())?;
-    let session = FileEngineBridge::validate_session(
-        &runtime,
-        token,
-        job_header(&request),
-        Some(engine_header(&request)?),
-    )?;
-    if session.direction != FileConversionDirection::PdfToDocx {
-        return Err("Raw engine output is not valid for this conversion direction.".into());
-    }
-    fs::write(&session.output_path, bytes)
-        .map_err(|_| "The staged File engine output could not be written.".to_string())
+    let byte_length = bytes.len();
+    let bridge = Arc::clone(&state.bridge);
+    let app = window.app_handle().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let runtime = bridge
+            .runtime
+            .lock()
+            .map_err(|_| "The File engine session store is unavailable.".to_string())?;
+        let session = FileEngineBridge::validate_session(
+            &runtime,
+            &token,
+            job_id.as_deref(),
+            Some(&engine_version),
+        )?;
+        if session.direction != FileConversionDirection::PdfToDocx {
+            return Err("Raw engine output is not valid for this conversion direction.".into());
+        }
+        let output_path = session.output_path.clone();
+        drop(runtime);
+        fs::write(&output_path, bytes)
+            .map_err(|_| "The staged File engine output could not be written.".to_string())
+    })
+    .await
+    .map_err(|_| "The File engine output worker stopped unexpectedly.".to_string())??;
+    crate::services::performance::record_media_transfer(&app, "file_engine_write", byte_length);
+    Ok(())
 }
 
 #[tauri::command]
@@ -1189,5 +1314,41 @@ mod tests {
         let runtime = bridge.runtime.lock().unwrap();
         assert!(runtime.ready_version.is_none());
         assert!(runtime.sessions.is_empty());
+        assert!(runtime.scheduled_idle_generation.is_none());
+    }
+
+    #[test]
+    fn idle_teardown_waits_for_empty_sessions_and_reuses_ready_engine() {
+        let mut runtime = EngineRuntime {
+            ready_version: Some(FILE_ENGINE_VERSION.into()),
+            ..EngineRuntime::default()
+        };
+        let (session, _receiver) = test_session("active", Instant::now() + Duration::from_secs(10));
+        runtime.sessions.insert("active".into(), session);
+        assert_eq!(runtime.schedule_idle_teardown(), None);
+
+        runtime.sessions.clear();
+        let idle_generation = runtime.schedule_idle_teardown().unwrap();
+        runtime.begin_work();
+        assert!(!runtime.claim_idle_teardown(idle_generation));
+        assert_eq!(runtime.ready_version.as_deref(), Some(FILE_ENGINE_VERSION));
+        assert!(runtime.scheduled_idle_generation.is_none());
+        assert_eq!(ENGINE_IDLE_TIMEOUT, Duration::from_secs(30));
+    }
+
+    #[test]
+    fn idle_generation_claim_clears_readiness_and_future_work_requires_recreation() {
+        let mut runtime = EngineRuntime {
+            ready_version: Some(FILE_ENGINE_VERSION.into()),
+            ..EngineRuntime::default()
+        };
+        let idle_generation = runtime.schedule_idle_teardown().unwrap();
+        assert!(runtime.claim_idle_teardown(idle_generation));
+        assert!(runtime.ready_version.is_none());
+        assert!(!runtime.claim_idle_teardown(idle_generation));
+
+        runtime.begin_work();
+        assert!(runtime.ready_version.is_none());
+        assert!(runtime.schedule_idle_teardown().is_none());
     }
 }

@@ -1,6 +1,7 @@
 use tauri::{Manager, PhysicalPosition, PhysicalRect, PhysicalSize, WebviewUrl, WindowEvent};
 use tauri_plugin_positioner::{Position, WindowExt};
 
+use crate::services::surface_activity::{hide_surface, show_surface};
 use crate::services::tool_windows::{hide_tool_window, prepare_tool_window, ToolWindowKind};
 
 pub const PAPER_WINDOW_LABEL: &str = ToolWindowKind::Paper.label();
@@ -82,8 +83,7 @@ pub fn toggle_paper_window(
             .is_visible()
             .map_err(|error| format!("failed to read Zero Paper visibility: {error}"))?
         {
-            return window
-                .hide()
+            return hide_surface(&window)
                 .map_err(|error| format!("failed to hide Zero Paper window: {error}"));
         }
     }
@@ -91,9 +91,7 @@ pub fn toggle_paper_window(
     prepare_tool_window(app, ToolWindowKind::Paper)?;
     let window = get_or_create_paper_window(app, options)?;
     position_paper_window(&window, anchor, options)?;
-    window
-        .show()
-        .map_err(|error| format!("failed to show Zero Paper window: {error}"))?;
+    show_surface(&window).map_err(|error| format!("failed to show Zero Paper window: {error}"))?;
     window
         .set_focus()
         .map_err(|error| format!("failed to focus Zero Paper window: {error}"))?;
@@ -128,7 +126,7 @@ fn get_or_create_paper_window(
             tauri::async_runtime::spawn_blocking(move || {
                 std::thread::sleep(std::time::Duration::from_millis(120));
                 if !dismiss_window.is_focused().unwrap_or(false) {
-                    let _ = dismiss_window.hide();
+                    let _ = hide_surface(&dismiss_window);
                 }
             });
         }

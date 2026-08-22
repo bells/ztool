@@ -85,6 +85,10 @@ impl FileConversionProvider for LibreOfficeProvider {
         self.discovery.probe()
     }
 
+    fn invalidate(&self) {
+        self.discovery.invalidate();
+    }
+
     fn convert(
         &self,
         request: &ProviderConversionRequest,

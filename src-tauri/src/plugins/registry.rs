@@ -26,7 +26,7 @@ use super::package::{
     validate_zplugin_package,
 };
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PluginRegistryDiskState {
     #[serde(default)]
@@ -41,6 +41,7 @@ pub struct PluginRegistry {
     records: Vec<PluginRecord>,
     diagnostics: Vec<String>,
     engine_leases: HashMap<(String, String), usize>,
+    startup_write_performed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -66,6 +67,13 @@ impl Default for PluginRegistryState {
 }
 
 impl PluginRegistryState {
+    pub fn startup_write_performed(&self) -> bool {
+        self.registry
+            .lock()
+            .map(|registry| registry.startup_write_performed())
+            .unwrap_or(false)
+    }
+
     pub fn with_registry<T>(
         &self,
         operation: impl FnOnce(&mut PluginRegistry) -> Result<T, String>,
@@ -87,12 +95,16 @@ impl PluginRegistry {
 
         let registry_path = registry_path(&root);
         if !registry_path.exists() {
-            return Ok(Self {
+            let mut registry = Self {
                 root,
                 records: bundled_plugin_records(),
                 diagnostics: Vec::new(),
                 engine_leases: HashMap::new(),
-            });
+                startup_write_performed: false,
+            };
+            registry.save()?;
+            registry.startup_write_performed = true;
+            return Ok(registry);
         }
 
         match fs::read_to_string(&registry_path)
@@ -102,24 +114,36 @@ impl PluginRegistry {
                     .map_err(|error| format!("failed to parse plugin registry: {error}"))
             }) {
             Ok(mut state) => {
+                let original = state.clone();
                 canonicalize_records(&mut state.records);
                 migrate_bundled_records(&mut state.records);
                 state.schema_version = PLUGIN_REGISTRY_SCHEMA_VERSION;
-                let registry = Self {
+                let changed = state != original;
+                let mut registry = Self {
                     root,
                     records: state.records,
                     diagnostics: Vec::new(),
                     engine_leases: HashMap::new(),
+                    startup_write_performed: false,
                 };
-                registry.save()?;
+                if changed {
+                    registry.save()?;
+                    registry.startup_write_performed = true;
+                }
                 Ok(registry)
             }
-            Err(error) => Ok(Self {
-                root,
-                records: bundled_plugin_records(),
-                diagnostics: vec![format!("registry recovery: {error}")],
-                engine_leases: HashMap::new(),
-            }),
+            Err(error) => {
+                let mut registry = Self {
+                    root,
+                    records: bundled_plugin_records(),
+                    diagnostics: vec![format!("registry recovery: {error}")],
+                    engine_leases: HashMap::new(),
+                    startup_write_performed: false,
+                };
+                registry.save()?;
+                registry.startup_write_performed = true;
+                Ok(registry)
+            }
         }
     }
 
@@ -133,6 +157,10 @@ impl PluginRegistry {
 
     pub fn diagnostics(&self) -> &[String] {
         &self.diagnostics
+    }
+
+    pub fn startup_write_performed(&self) -> bool {
+        self.startup_write_performed
     }
 
     pub fn save(&self) -> Result<(), String> {
@@ -1075,6 +1103,27 @@ mod tests {
                 .unwrap()
                 .as_nanos()
         ))
+    }
+
+    #[test]
+    fn unchanged_registry_load_does_not_rewrite_or_sync() {
+        let root = unique_root();
+        let first = PluginRegistry::load_or_seed(root.clone()).unwrap();
+        assert!(first.startup_write_performed());
+        let path = registry_path(&root);
+        let before_bytes = fs::read(&path).unwrap();
+        let before_modified = fs::metadata(&path).unwrap().modified().unwrap();
+
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let second = PluginRegistry::load_or_seed(root.clone()).unwrap();
+        assert!(!second.startup_write_performed());
+        assert_eq!(fs::read(&path).unwrap(), before_bytes);
+        assert_eq!(
+            fs::metadata(&path).unwrap().modified().unwrap(),
+            before_modified
+        );
+
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

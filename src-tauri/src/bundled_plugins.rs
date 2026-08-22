@@ -3,7 +3,7 @@ use tauri::Manager;
 pub fn manage_states(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
     let engine_bridge = crate::services::file::engine_bridge::FileEngineBridgeState::default();
     builder
-        .manage(crate::services::caffeine::CaffeineState::new())
+        .manage(crate::services::caffeine::CaffeineState::default())
         .manage(crate::services::bing_wallpaper::BingWallpaperState::default())
         .manage(crate::services::quick_launcher::QuickLauncherState::default())
         .manage(crate::services::file::FileConversionState::default())
@@ -13,32 +13,51 @@ pub fn manage_states(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<taur
 
 pub fn start_quick_launcher(app: &tauri::AppHandle) {
     let launcher_state = app.state::<crate::services::quick_launcher::QuickLauncherState>();
-    if let Err(error) = launcher_state.start_watcher(app.clone()) {
-        launcher_state.add_diagnostic("launcher.watcher_unavailable", error);
-    }
+    launcher_state.set_enabled(true);
 
     let launcher_app = app.clone();
     tauri::async_runtime::spawn(async move {
-        let refresh_app = launcher_app.clone();
+        let initialization_app = launcher_app.clone();
         let result = tauri::async_runtime::spawn_blocking(move || {
-            refresh_app
+            let trace =
+                initialization_app.state::<crate::services::performance::PerformanceTrace>();
+            let started = trace.begin();
+            let result = initialization_app
                 .state::<crate::services::quick_launcher::QuickLauncherState>()
-                .refresh(&crate::services::quick_launcher::system_language())
+                .initialize(initialization_app.clone());
+            trace.finish(
+                "launch_initialization",
+                if result.is_ok() { "ok" } else { "error" },
+                started,
+            );
+            result
         })
         .await;
-        if let Err(error) = result {
-            launcher_app
+        match result {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => launcher_app
+                .state::<crate::services::quick_launcher::QuickLauncherState>()
+                .add_diagnostic("launcher.initialize_failed", error.message),
+            Err(error) => launcher_app
                 .state::<crate::services::quick_launcher::QuickLauncherState>()
                 .add_diagnostic(
-                    "launcher.refresh_join_failed",
-                    format!("Launcher startup refresh failed: {error}"),
-                );
+                    "launcher.initialize_join_failed",
+                    format!("Launcher startup initialization failed: {error}"),
+                ),
         }
     });
 }
 
-pub fn initialize_file_conversion(app: &tauri::AppHandle) {
-    let result = app
+#[cfg(debug_assertions)]
+pub fn start_file_engine_smoke_if_requested(app: &tauri::AppHandle) {
+    use crate::services::file::contracts::{
+        FileConversionEnqueueItem, FileConversionEnqueueRequest, FileConversionJobState,
+    };
+
+    let Ok(source_path) = std::env::var("ZERO_FILE_ENGINE_SMOKE_INPUT") else {
+        return;
+    };
+    let initialization = app
         .path()
         .app_cache_dir()
         .map_err(|_| "The Zero cache directory is unavailable.".to_string())
@@ -54,23 +73,10 @@ pub fn initialize_file_conversion(app: &tauri::AppHandle) {
                 )
                 .map_err(|error| error.message)
         });
-    if let Err(error) = result {
-        eprintln!("Zero File initialization: {error}");
-    }
-
-    #[cfg(debug_assertions)]
-    start_file_engine_smoke(app);
-}
-
-#[cfg(debug_assertions)]
-fn start_file_engine_smoke(app: &tauri::AppHandle) {
-    use crate::services::file::contracts::{
-        FileConversionEnqueueItem, FileConversionEnqueueRequest, FileConversionJobState,
-    };
-
-    let Ok(source_path) = std::env::var("ZERO_FILE_ENGINE_SMOKE_INPUT") else {
+    if let Err(error) = initialization {
+        eprintln!("ZERO_FILE_ENGINE_SMOKE initialization failed: {error}");
         return;
-    };
+    }
     let output_directory = std::env::var("ZERO_FILE_ENGINE_SMOKE_OUTPUT")
         .unwrap_or_else(|_| "/private/tmp/zero-file-engine-smoke".into());
     if let Err(error) = std::fs::create_dir_all(&output_directory) {

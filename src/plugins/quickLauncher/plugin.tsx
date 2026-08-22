@@ -4,8 +4,6 @@ import {
   createQuickLauncherTranslator,
   quickLauncherMessages,
 } from "./i18n";
-import QuickLauncherApp from "./QuickLauncherApp";
-import { QuickLauncherPanel } from "./QuickLauncherPanel";
 
 export const quickLauncherPlugin: BundledPluginModule = {
   kind: "quick-launcher",
@@ -54,8 +52,10 @@ export const quickLauncherPlugin: BundledPluginModule = {
       subtitle: quickLauncherMessages["en-US"]["plugin.subtitle"],
     },
   },
-  renderPanel(language) {
-    return <QuickLauncherPanel t={createQuickLauncherTranslator(language)} />;
-  },
-  surfaces: { launcher: QuickLauncherApp },
+  loadPanel: () => import("./QuickLauncherPanel").then(({ QuickLauncherPanel }) => ({
+    default: ({ language }) => (
+      <QuickLauncherPanel t={createQuickLauncherTranslator(language)} />
+    ),
+  })),
+  surfaces: { launcher: () => import("./QuickLauncherApp") },
 };

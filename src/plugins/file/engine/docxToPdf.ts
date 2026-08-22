@@ -2,6 +2,7 @@ import { renderAsync } from "docx-preview";
 import type { FileEngineRenderMeasurement } from "./engineContracts";
 
 const RESOURCE_TIMEOUT_MS = 15_000;
+const MAX_IMAGE_DECODE_CONCURRENCY = 4;
 
 export async function renderDocxForNativePrint(
   bytes: Uint8Array,
@@ -90,16 +91,36 @@ function engineDocumentRoot() {
   return root;
 }
 
+export function clearDocxRenderSurface() {
+  document.body.classList.remove("zero-file-engine-export");
+  const root = document.getElementById("zero-file-engine-document");
+  if (root instanceof HTMLElement) {
+    root.replaceChildren();
+    root.className = "zero-file-engine-document";
+  }
+}
+
 async function waitForImages(root: HTMLElement, signal: AbortSignal) {
-  await Promise.all([...root.querySelectorAll("img")].map(async (image) => {
-    assertNotCancelled(signal);
-    if (image.complete) {
-      if (image.naturalWidth === 0) throw new Error("An embedded image could not be decoded.");
-      return;
+  const images = [...root.querySelectorAll("img")];
+  let nextIndex = 0;
+  await Promise.all(Array.from(
+    { length: Math.min(MAX_IMAGE_DECODE_CONCURRENCY, images.length) },
+    async () => {
+      while (nextIndex < images.length) {
+        const image = images[nextIndex];
+        nextIndex += 1;
+        assertNotCancelled(signal);
+        if (image.complete) {
+          if (image.naturalWidth === 0) {
+            throw new Error("An embedded image could not be decoded.");
+          }
+          continue;
+        }
+        await image.decode();
+        assertNotCancelled(signal);
+      }
     }
-    await image.decode();
-    assertNotCancelled(signal);
-  }));
+  ));
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string) {

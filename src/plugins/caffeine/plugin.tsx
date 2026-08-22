@@ -1,6 +1,5 @@
 import type { BundledPluginModule } from "../../core/pluginHost/pluginModule";
 import { FIRST_PARTY_PLUGIN_IDS } from "../../brand/identity";
-import { CaffeinePanel } from "./CaffeinePanel";
 import { caffeineMessages, createCaffeineTranslator } from "./i18n";
 
 export const caffeinePlugin: BundledPluginModule = {
@@ -51,7 +50,9 @@ export const caffeinePlugin: BundledPluginModule = {
       subtitle: caffeineMessages["en-US"]["plugin.subtitle"],
     },
   },
-  renderPanel(language) {
-    return <CaffeinePanel t={createCaffeineTranslator(language)} />;
-  },
+  loadPanel: () => import("./CaffeinePanel").then(({ CaffeinePanel }) => ({
+    default: ({ language }) => (
+      <CaffeinePanel t={createCaffeineTranslator(language)} />
+    ),
+  })),
 };
