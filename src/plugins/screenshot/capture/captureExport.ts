@@ -45,6 +45,50 @@ export function releaseCanvas(canvas: HTMLCanvasElement | null): void {
   canvas.height = 1;
 }
 
+function normalizedRadius(width: number, height: number, radius: number): number {
+  if (!Number.isFinite(radius)) {
+    return 0;
+  }
+  return Math.max(0, Math.min(Math.round(radius), Math.floor(Math.min(width, height) / 2)));
+}
+
+export function applyRoundedCanvasMask(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  cornerRadius: number,
+): void {
+  const radius = normalizedRadius(width, height, cornerRadius);
+  if (radius === 0) {
+    return;
+  }
+  ctx.save();
+  ctx.globalCompositeOperation = "destination-in";
+  ctx.fillStyle = "#000";
+  ctx.beginPath();
+  ctx.roundRect(0, 0, width, height, radius);
+  ctx.fill();
+  ctx.restore();
+}
+
+export function isPointInsideRoundedRect(
+  point: { x: number; y: number },
+  width: number,
+  height: number,
+  cornerRadius: number,
+): boolean {
+  if (point.x < 0 || point.y < 0 || point.x > width || point.y > height) {
+    return false;
+  }
+  const radius = normalizedRadius(width, height, cornerRadius);
+  if (radius === 0) {
+    return true;
+  }
+  const centerX = point.x < radius ? radius : point.x > width - radius ? width - radius : point.x;
+  const centerY = point.y < radius ? radius : point.y > height - radius ? height - radius : point.y;
+  return Math.hypot(point.x - centerX, point.y - centerY) <= radius;
+}
+
 export function renderFinalCanvas(
   baseImage: CanvasImageSource,
   width: number,
@@ -79,6 +123,7 @@ export function canvasToPngBytes(canvas: HTMLCanvasElement): Promise<Uint8Array>
 export async function cropCanvasToPngBytes(
   source: HTMLCanvasElement,
   bounds: Bounds,
+  cornerRadius = 0,
 ): Promise<Uint8Array | null> {
   const safeBounds = clampBounds(bounds, source.width, source.height);
   if (!safeBounds) {
@@ -101,6 +146,7 @@ export async function cropCanvasToPngBytes(
       safeBounds.width,
       safeBounds.height,
     );
+    applyRoundedCanvasMask(ctx, target.width, target.height, cornerRadius);
     return await canvasToPngBytes(target);
   } finally {
     releaseCanvas(target);

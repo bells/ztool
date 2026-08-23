@@ -50,7 +50,7 @@ test("keeps icon-only controls localized, stateful, and keyboard ordered", () =>
 });
 
 test("crops commits to the real screenshot selection and anchors the toolbar to it", () => {
-  assert.match(captureSource, /cropCanvasToPngBytes\(sourceCanvas, bounds\)/);
+  assert.match(captureSource, /cropCanvasToPngBytes\(\s*sourceCanvas,\s*geometry\.bounds,\s*geometry\.cornerRadius/);
   assert.match(captureSource, /uploadSelection\(action, selection\)/);
   assert.match(captureSource, /releaseCanvas\(sourceCanvas\)/);
   assert.match(captureSource, /imageBoundsToViewportBounds\(/);
@@ -83,6 +83,7 @@ test("places the ellipse tool immediately after rectangle", () => {
 
 test("routes all eight resize handles through one typed selection interaction", () => {
   assert.match(captureSource, /type SelectionPointerInteraction =/);
+  assert.match(captureSource, /kind: "pending-target"/);
   assert.match(captureSource, /kind: "create"/);
   assert.match(captureSource, /kind: "resize"/);
   assert.match(captureSource, /handle: SelectionResizeHandle/);
@@ -96,7 +97,8 @@ test("routes all eight resize handles through one typed selection interaction", 
 });
 
 test("keeps resize feedback live but exports only the committed selection", () => {
-  assert.match(captureSource, /const activeSelection = selectionDraft \?\? selection/);
+  assert.match(captureSource, /const activeGeometry = selectionDraft \?\? selection/);
+  assert.match(captureSource, /const activeSelection = activeGeometry\?\.bounds \?\? null/);
   assert.match(captureSource, /imageBoundsToViewportBounds\(\s*activeSelection/);
   assert.match(captureSource, /uploadSelection\(action, selection\)/);
   assert.match(captureSource, /tool === "select" \? " adjustable"/);
@@ -111,6 +113,6 @@ test("moves selections by source pixels only in an unmodified idle Select contex
   assert.match(captureSource, /selectToolActive: tool === "select"/);
   assert.match(captureSource, /composing: event\.isComposing \|\| Boolean\(textDraftRef\.current\)/);
   assert.match(captureSource, /pointerActive: Boolean\(selectionInteractionRef\.current\)/);
-  assert.match(captureSource, /moveSelectionBy\(current, selectionDelta/);
+  assert.match(captureSource, /moveSelectionBy\(current\.bounds, selectionDelta/);
   assert.match(captureSource, /repeat: event\.repeat/);
 });

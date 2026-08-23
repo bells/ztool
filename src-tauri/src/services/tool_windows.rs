@@ -1,5 +1,4 @@
 use tauri::{Manager, PhysicalPosition, PhysicalRect, PhysicalSize};
-use tauri_plugin_positioner::{Position, WindowExt};
 
 use crate::services::surface_activity::hide_surface;
 
@@ -50,6 +49,44 @@ pub struct ToolWindowLogicalSize {
     pub height: f64,
 }
 
+fn monitor_bounds_contain_anchor(
+    monitor_bounds: PhysicalRect<i32, u32>,
+    anchor: ToolWindowAnchor,
+) -> bool {
+    let center_x = i64::from(anchor.x) + i64::from(anchor.width) / 2;
+    let center_y = i64::from(anchor.y) + i64::from(anchor.height) / 2;
+    let left = i64::from(monitor_bounds.position.x);
+    let top = i64::from(monitor_bounds.position.y);
+    let right = left + i64::from(monitor_bounds.size.width);
+    let bottom = top + i64::from(monitor_bounds.size.height);
+    center_x >= left && center_x < right && center_y >= top && center_y < bottom
+}
+
+fn monitor_for_tool_window_anchor(
+    window: &tauri::WebviewWindow,
+    anchor: ToolWindowAnchor,
+) -> Option<tauri::Monitor> {
+    let center_x = f64::from(anchor.x) + f64::from(anchor.width) / 2.0;
+    let center_y = f64::from(anchor.y) + f64::from(anchor.height) / 2.0;
+    if let Ok(Some(monitor)) = window.monitor_from_point(center_x, center_y) {
+        return Some(monitor);
+    }
+
+    window
+        .available_monitors()
+        .ok()?
+        .into_iter()
+        .find(|monitor| {
+            monitor_bounds_contain_anchor(
+                PhysicalRect {
+                    position: *monitor.position(),
+                    size: *monitor.size(),
+                },
+                anchor,
+            )
+        })
+}
+
 pub fn anchored_tool_window_position(
     anchor: ToolWindowAnchor,
     window_size: PhysicalSize<u32>,
@@ -88,11 +125,7 @@ pub fn position_anchored_tool_window(
     display_name: &str,
 ) -> Result<(), String> {
     if let Some(anchor) = anchor {
-        let monitor = window.monitor_from_point(
-            f64::from(anchor.x) + f64::from(anchor.width) / 2.0,
-            f64::from(anchor.y) + f64::from(anchor.height) / 2.0,
-        );
-        if let Ok(Some(monitor)) = monitor {
+        if let Some(monitor) = monitor_for_tool_window_anchor(window, anchor) {
             let scale_factor = monitor.scale_factor();
             let window_size = PhysicalSize::new(
                 (logical_size.width * scale_factor).round() as u32,
@@ -109,10 +142,8 @@ pub fn position_anchored_tool_window(
     }
 
     window
-        .as_ref()
-        .window()
-        .move_window(Position::TrayCenter)
-        .map_err(|error| format!("failed to place {display_name} near the status bar: {error}"))
+        .center()
+        .map_err(|error| format!("failed to center {display_name} safely: {error}"))
 }
 
 pub fn prepare_tool_window(app: &tauri::AppHandle, opening: ToolWindowKind) -> Result<(), String> {
@@ -249,5 +280,31 @@ mod tests {
             ),
             None
         );
+    }
+
+    #[test]
+    fn monitor_selection_uses_full_bounds_for_menu_bar_anchors() {
+        let upper_monitor = tauri::PhysicalRect {
+            position: tauri::PhysicalPosition::new(-1920, -900),
+            size: tauri::PhysicalSize::new(1920, 900),
+        };
+        assert!(monitor_bounds_contain_anchor(
+            upper_monitor,
+            ToolWindowAnchor {
+                x: -44,
+                y: -900,
+                width: 22,
+                height: 22,
+            }
+        ));
+        assert!(!monitor_bounds_contain_anchor(
+            upper_monitor,
+            ToolWindowAnchor {
+                x: 10,
+                y: 0,
+                width: 22,
+                height: 22,
+            }
+        ));
     }
 }

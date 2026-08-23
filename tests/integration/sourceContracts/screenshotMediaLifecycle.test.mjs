@@ -47,9 +47,27 @@ test("releases frontend and native screenshot resources at terminal boundaries",
   assert.match(serviceSource, /remove_pin\(&cleanup_label\)/);
 });
 
+test("reveals only after screenshot bytes decode and React commits the image", () => {
+  const decodeIndex = captureSource.indexOf("await loadImageFromObjectUrl(objectUrl)");
+  const imageCommitIndex = captureSource.indexOf("setBaseImage(decodedImage)");
+  const revealIndex = captureSource.indexOf('invoke("reveal_screenshot_capture"');
+  assert.ok(decodeIndex >= 0);
+  assert.ok(imageCommitIndex > decodeIndex);
+  assert.ok(revealIndex > imageCommitIndex);
+  assert.match(captureSource, /useLayoutEffect\(\(\) => \{[\s\S]*reveal_screenshot_capture/);
+  assert.match(captureSource, /await imageElement\.decode\(\)/);
+  assert.match(captureSource, /revealedSessionIdRef/);
+  assert.match(captureSource, /cancel_screenshot_session/);
+});
+
 test("retains the Windows system screenshot launcher without macOS media assumptions", () => {
   assert.match(serviceSource, /#\[cfg\(target_os = "windows"\)\]/);
   assert.match(serviceSource, /\.arg\("ms-screenclip:"\)/);
   assert.match(serviceSource, /SnippingTool\.exe/);
   assert.match(serviceSource, /#\[cfg\(target_os = "macos"\)\]\s*fn capture_fullscreen_png/);
+  const nonMacStartSource = serviceSource.slice(
+    serviceSource.indexOf('#[cfg(not(target_os = "macos"))]'),
+    serviceSource.indexOf("pub fn init_screenshot_session"),
+  );
+  assert.doesNotMatch(nonMacStartSource, /open_capture_window/);
 });

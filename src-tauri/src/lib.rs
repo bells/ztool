@@ -272,6 +272,7 @@ pub fn run() {
             commands::screenshot::start_snap_menu_screenshot,
             commands::screenshot::init_screenshot_session,
             commands::screenshot::read_screenshot_media,
+            commands::screenshot::reveal_screenshot_capture,
             commands::screenshot::prepare_screenshot_commit,
             commands::screenshot::upload_screenshot_commit,
             commands::screenshot::cancel_screenshot_session,

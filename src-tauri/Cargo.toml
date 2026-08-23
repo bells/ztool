@@ -47,10 +47,12 @@ block2 = "0.6.2"
 cocoa = "0.26.1"
 objc = "0.2"
 objc2 = "0.6.4"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSWindow"] }
 objc2-core-foundation = { version = "0.3.2", features = ["CFCGTypes", "objc2"] }
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSData", "NSError", "NSString", "NSObject"] }
 objc2-web-kit = { version = "0.3.2", default-features = false, features = ["std", "WKWebView", "WKPDFConfiguration", "block2", "objc2-core-foundation"] }
 window-vibrancy = "0.7.1"
+xcap = "0.9.8"
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.52", features = [
   "Win32_Foundation",

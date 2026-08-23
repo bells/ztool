@@ -6,6 +6,7 @@ import {
   useReducer,
   useRef,
   useState,
+  type CSSProperties,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -44,7 +45,6 @@ import { resolveCaptureHotkey } from "./captureHotkeys";
 import { captureReducer, createId, initialHistoryState } from "./captureReducer";
 import {
   CAPTURE_SELECTION_HANDLES,
-  createFullImageSelection,
   imageBoundsToViewportBounds,
   isPointInBounds,
   moveSelectionBy,
@@ -56,6 +56,20 @@ import {
   type SelectionResizeHandle,
   type Size,
 } from "./captureSelectionModel";
+import {
+  MINIMUM_SELECTION_DIMENSION,
+  normalizeSelectionGeometry,
+  selectionGeometryFromBounds,
+  type SelectionGeometry,
+} from "./captureGeometryModel";
+import {
+  hasExceededTargetDragThreshold,
+  normalizeScreenshotTargets,
+  resolveScreenshotTargetAtPoint,
+  resolveStableTargetClick,
+  type ResolvedScreenshotTarget,
+} from "./captureTargetModel";
+import { SelectionGeometryControls } from "./SelectionGeometryControls";
 import {
   buildPrepareScreenshotCommitPayload,
   buildScreenshotUploadOptions,
@@ -99,16 +113,23 @@ interface CaptureToolDescriptor {
 
 type SelectionPointerInteraction =
   | {
+      kind: "pending-target";
+      pointerId: number;
+      start: Point;
+      startViewport: Point;
+      target: ResolvedScreenshotTarget | null;
+    }
+  | {
       kind: "create";
       pointerId: number;
       start: Point;
-      initial: Bounds;
+      initial: SelectionGeometry;
     }
   | {
       kind: "resize";
       pointerId: number;
       start: Point;
-      initial: Bounds;
+      initial: SelectionGeometry;
       handle: SelectionResizeHandle;
     };
 
@@ -126,6 +147,25 @@ const tools: CaptureToolDescriptor[] = [
 const TEXT_INPUT_WIDTH = 220;
 const TEXT_INPUT_HEIGHT = 96;
 const TEXT_FONT_SIZE = 24;
+
+function roundedRectanglePath(bounds: Bounds, radius: number): string {
+  const { x, y, width, height } = bounds;
+  const safeRadius = Math.max(0, Math.min(radius, width / 2, height / 2));
+  const right = x + width;
+  const bottom = y + height;
+  return [
+    `M ${x + safeRadius} ${y}`,
+    `H ${right - safeRadius}`,
+    `Q ${right} ${y} ${right} ${y + safeRadius}`,
+    `V ${bottom - safeRadius}`,
+    `Q ${right} ${bottom} ${right - safeRadius} ${bottom}`,
+    `H ${x + safeRadius}`,
+    `Q ${x} ${bottom} ${x} ${bottom - safeRadius}`,
+    `V ${y + safeRadius}`,
+    `Q ${x} ${y} ${x + safeRadius} ${y}`,
+    "Z",
+  ].join(" ");
+}
 
 function screenshotErrorMessage(error: unknown): string {
   if (typeof error === "object" && error !== null && "message" in error) {
@@ -146,8 +186,10 @@ export function CaptureApp() {
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [baseImage, setBaseImage] = useState<HTMLImageElement | null>(null);
   const [tool, setTool] = useState<CaptureTool>("select");
-  const [selection, setSelection] = useState<Bounds | null>(null);
-  const [selectionDraft, setSelectionDraft] = useState<Bounds | null>(null);
+  const [selection, setSelection] = useState<SelectionGeometry | null>(null);
+  const [selectionDraft, setSelectionDraft] = useState<SelectionGeometry | null>(null);
+  const [hoverTarget, setHoverTarget] = useState<ResolvedScreenshotTarget | null>(null);
+  const [crosshair, setCrosshair] = useState<Point | null>(null);
   const [viewportSize, setViewportSize] = useState<Size>(() => ({
     width: window.innerWidth,
     height: window.innerHeight,
@@ -167,16 +209,19 @@ export function CaptureApp() {
   const overlayRef = useRef<HTMLCanvasElement | null>(null);
   const textInputRef = useRef<HTMLTextAreaElement | null>(null);
   const toolbarRef = useRef<HTMLElement | null>(null);
+  const revealedSessionIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     let disposed = false;
     let objectUrl: string | null = null;
     let decodedImage: HTMLImageElement | null = null;
     let receivedBytes: Uint8Array | null = null;
+    let initializedSessionId: string | null = null;
 
     void (async () => {
       try {
         const payload = await invoke<CaptureSession>("init_screenshot_session", {});
+        initializedSessionId = payload.sessionId;
         const value = await invoke<ArrayBuffer>("read_screenshot_media", {
           input: { token: payload.media.token },
         });
@@ -196,12 +241,7 @@ export function CaptureApp() {
           return;
         }
         setSession(payload);
-        setSelection(
-          createFullImageSelection({
-            width: payload.media.width,
-            height: payload.media.height,
-          }),
-        );
+        setSelection(null);
         setImageSrc(objectUrl);
         setBaseImage(decodedImage);
       } catch (error) {
@@ -210,6 +250,11 @@ export function CaptureApp() {
         objectUrl = releaseObjectUrl(objectUrl);
         if (!disposed) {
           setError(screenshotErrorMessage(error));
+          if (initializedSessionId) {
+            await invoke("cancel_screenshot_session", {
+              sessionId: initializedSessionId,
+            }).catch(() => undefined);
+          }
         }
       } finally {
         receivedBytes?.fill(0);
@@ -223,6 +268,50 @@ export function CaptureApp() {
       objectUrl = releaseObjectUrl(objectUrl);
     };
   }, []);
+
+  useLayoutEffect(() => {
+    if (!session || !imageSrc || !baseImage) {
+      return;
+    }
+    if (revealedSessionIdRef.current === session.sessionId) {
+      return;
+    }
+    const imageElement = imageRef.current;
+    if (!imageElement) {
+      return;
+    }
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        await imageElement.decode();
+        if (
+          cancelled ||
+          revealedSessionIdRef.current === session.sessionId
+        ) {
+          return;
+        }
+        revealedSessionIdRef.current = session.sessionId;
+
+        // Force layout after the displayed image itself has decoded. Native reveal is
+        // queued onto AppKit's main thread, so no empty WebView frame is exposed.
+        void document.documentElement.offsetWidth;
+        await invoke("reveal_screenshot_capture", { sessionId: session.sessionId });
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        setError(screenshotErrorMessage(error));
+        await invoke("cancel_screenshot_session", {
+          sessionId: session.sessionId,
+        }).catch(() => undefined);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [baseImage, imageSrc, session]);
 
   useLayoutEffect(() => {
     const input = textInputRef.current;
@@ -264,9 +353,18 @@ export function CaptureApp() {
       observer.disconnect();
       window.removeEventListener("resize", updateViewportSize);
     };
-  }, []);
+  }, [selection]);
 
-  const activeSelection = selectionDraft ?? selection;
+  const imageSize = useMemo<Size>(
+    () => ({ width: session?.media.width ?? 0, height: session?.media.height ?? 0 }),
+    [session?.media.height, session?.media.width],
+  );
+  const targets = useMemo(
+    () => normalizeScreenshotTargets(session?.targets ?? [], imageSize),
+    [imageSize, session?.targets],
+  );
+  const activeGeometry = selectionDraft ?? selection;
+  const activeSelection = activeGeometry?.bounds ?? null;
   const selectionViewportBounds = useMemo(() => {
     if (!session || !activeSelection) {
       return null;
@@ -277,6 +375,24 @@ export function CaptureApp() {
       viewportSize,
     );
   }, [activeSelection, session, viewportSize]);
+
+  const imageViewportBounds = useMemo(() => {
+    if (!session) {
+      return null;
+    }
+    return imageBoundsToViewportBounds(
+      { x: 0, y: 0, width: session.media.width, height: session.media.height },
+      imageSize,
+      viewportSize,
+    );
+  }, [imageSize, session, viewportSize]);
+
+  const hoverViewportBounds = useMemo(() => {
+    if (!hoverTarget || !session) {
+      return null;
+    }
+    return imageBoundsToViewportBounds(hoverTarget.bounds, imageSize, viewportSize);
+  }, [hoverTarget, imageSize, session, viewportSize]);
 
   const toolbarPosition: CaptureToolbarPosition | null = useMemo(() => {
     if (!selectionViewportBounds || !toolbarSize) {
@@ -348,7 +464,7 @@ export function CaptureApp() {
   const uploadSelection = useCallback(
     async (
       action: "copy" | "save" | "pin",
-      bounds: Bounds,
+      geometry: SelectionGeometry,
     ): Promise<ScreenshotCommitResult> => {
       if (!session) {
         throw new Error("Capture session is not ready");
@@ -361,7 +477,11 @@ export function CaptureApp() {
       let pngBytes: Uint8Array | null = null;
       try {
         sourceCanvas = renderCurrentFinalCanvas();
-        pngBytes = await cropCanvasToPngBytes(sourceCanvas, bounds);
+        pngBytes = await cropCanvasToPngBytes(
+          sourceCanvas,
+          geometry.bounds,
+          geometry.cornerRadius,
+        );
         if (!pngBytes) {
           throw new Error("Screenshot selection is outside the captured image");
         }
@@ -382,10 +502,10 @@ export function CaptureApp() {
   );
 
   const commitPin = useCallback(
-    async (bounds: Bounds) => {
+    async (geometry: SelectionGeometry) => {
       setError(null);
       try {
-        await uploadSelection("pin", bounds);
+        await uploadSelection("pin", geometry);
       } catch (error) {
         setError(screenshotErrorMessage(error));
       }
@@ -421,6 +541,8 @@ export function CaptureApp() {
       dragStartRef.current = null;
       selectionInteractionRef.current = null;
       draftIdRef.current = null;
+      setCrosshair(null);
+      setHoverTarget(null);
       return;
     }
 
@@ -456,10 +578,13 @@ export function CaptureApp() {
         event.preventDefault();
         setSelection((current) =>
           current
-            ? moveSelectionBy(current, selectionDelta, {
-                width: session.media.width,
-                height: session.media.height,
-              })
+            ? normalizeSelectionGeometry(
+                {
+                  ...current,
+                  bounds: moveSelectionBy(current.bounds, selectionDelta, imageSize),
+                },
+                imageSize,
+              )
             : current,
         );
         return;
@@ -488,7 +613,7 @@ export function CaptureApp() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [cancel, session, tool]);
+  }, [cancel, imageSize, session, tool]);
 
   function createDraft(start: Point, point: Point): AnnotationObject {
     const id = draftIdRef.current ?? createId(tool);
@@ -577,12 +702,23 @@ export function CaptureApp() {
     setError(null);
 
     if (tool === "select") {
+      if (!selection) {
+        const target = resolveScreenshotTargetAtPoint(targets, point, imageSize);
+        event.currentTarget.setPointerCapture(event.pointerId);
+        selectionInteractionRef.current = {
+          kind: "pending-target",
+          pointerId: event.pointerId,
+          start: point,
+          startViewport: { x: event.clientX, y: event.clientY },
+          target,
+        };
+        setHoverTarget(target);
+        setCrosshair(point);
+        return;
+      }
       const target = resolveSelectPointerTarget(history.annotations, point);
       if (target.kind === "annotation") {
         dispatch({ type: "select", id: target.annotationId });
-        return;
-      }
-      if (!selection) {
         return;
       }
       event.currentTarget.setPointerCapture(event.pointerId);
@@ -594,6 +730,7 @@ export function CaptureApp() {
         initial: selection,
       };
       setSelectionDraft(null);
+      setCrosshair(point);
       return;
     }
 
@@ -617,23 +754,77 @@ export function CaptureApp() {
   const handlePointerMove = (event: ReactPointerEvent<HTMLCanvasElement>) => {
     const point = pointerToImagePoint(event);
     if (!point) {
+      if (!selectionInteractionRef.current) {
+        setHoverTarget(null);
+        setCrosshair(null);
+      }
       return;
     }
 
     const interaction = selectionInteractionRef.current;
+    if (
+      interaction?.kind === "pending-target" &&
+      interaction.pointerId === event.pointerId &&
+      session
+    ) {
+      setCrosshair(point);
+      const currentTarget = resolveScreenshotTargetAtPoint(targets, point, imageSize);
+      setHoverTarget(currentTarget);
+      if (
+        hasExceededTargetDragThreshold(interaction.startViewport, {
+          x: event.clientX,
+          y: event.clientY,
+        })
+      ) {
+        const initial = selectionGeometryFromBounds({
+          x: interaction.start.x,
+          y: interaction.start.y,
+          width: 0,
+          height: 0,
+        });
+        selectionInteractionRef.current = {
+          kind: "create",
+          pointerId: event.pointerId,
+          start: interaction.start,
+          initial,
+        };
+        setHoverTarget(null);
+        const nextBounds = resolveSelectionDrag(
+          initial.bounds,
+          interaction.start,
+          point,
+          imageSize,
+        );
+        setSelectionDraft(normalizeSelectionGeometry({ ...initial, bounds: nextBounds }, imageSize));
+      }
+      return;
+    }
     if (
       interaction?.kind === "create" &&
       interaction.pointerId === event.pointerId &&
       session
     ) {
       const nextSelection = resolveSelectionDrag(
-        interaction.initial,
+        interaction.initial.bounds,
         interaction.start,
         point,
         { width: session.media.width, height: session.media.height },
       );
-      setSelectionDraft(nextSelection === interaction.initial ? null : nextSelection);
+      setSelectionDraft(
+        nextSelection === interaction.initial.bounds
+          ? null
+          : normalizeSelectionGeometry(
+              { ...interaction.initial, bounds: nextSelection },
+              imageSize,
+            ),
+      );
+      setCrosshair(point);
       return;
+    }
+
+    if (!selection && tool === "select") {
+      setHoverTarget(resolveScreenshotTargetAtPoint(targets, point, imageSize));
+      setCrosshair(point);
     }
 
     const start = dragStartRef.current;
@@ -648,21 +839,52 @@ export function CaptureApp() {
     const point = pointerToImagePoint(event);
     const interaction = selectionInteractionRef.current;
     if (
+      interaction?.kind === "pending-target" &&
+      interaction.pointerId === event.pointerId &&
+      session
+    ) {
+      const endTarget = point
+        ? resolveScreenshotTargetAtPoint(targets, point, imageSize)
+        : null;
+      const bounds = resolveStableTargetClick(interaction.target, endTarget, false);
+      if (bounds) {
+        setSelection(normalizeSelectionGeometry(selectionGeometryFromBounds(bounds), imageSize));
+        setHoverTarget(null);
+        setCrosshair(null);
+      }
+      selectionInteractionRef.current = null;
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+      return;
+    }
+    if (
       interaction?.kind === "create" &&
       interaction.pointerId === event.pointerId &&
       session
     ) {
       const nextSelection = point
         ? resolveSelectionDrag(
-            interaction.initial,
+            interaction.initial.bounds,
             interaction.start,
             point,
             { width: session.media.width, height: session.media.height },
           )
-        : interaction.initial;
-      setSelection(nextSelection);
+        : interaction.initial.bounds;
+      const nextGeometry = normalizeSelectionGeometry(
+        { ...interaction.initial, bounds: nextSelection },
+        imageSize,
+      );
+      if (
+        nextGeometry.bounds.width >= MINIMUM_SELECTION_DIMENSION &&
+        nextGeometry.bounds.height >= MINIMUM_SELECTION_DIMENSION
+      ) {
+        setSelection(nextGeometry);
+      }
       setSelectionDraft(null);
       selectionInteractionRef.current = null;
+      setHoverTarget(null);
+      setCrosshair(null);
       if (event.currentTarget.hasPointerCapture(event.pointerId)) {
         event.currentTarget.releasePointerCapture(event.pointerId);
       }
@@ -685,7 +907,7 @@ export function CaptureApp() {
 
     updateDraft(null);
     if (currentDraft.type === "pin") {
-      void commitPin(currentDraft);
+      void commitPin(selectionGeometryFromBounds(currentDraft));
       return;
     }
 
@@ -700,6 +922,8 @@ export function CaptureApp() {
 
     selectionInteractionRef.current = null;
     setSelectionDraft(null);
+    setCrosshair(null);
+    setHoverTarget(null);
   };
 
   const handleResizePointerDown = (
@@ -746,16 +970,17 @@ export function CaptureApp() {
       return;
     }
 
+    const bounds = resolveSelectionResize(
+      interaction.initial.bounds,
+      interaction.handle,
+      {
+        x: point.x - interaction.start.x,
+        y: point.y - interaction.start.y,
+      },
+      imageSize,
+    );
     setSelectionDraft(
-      resolveSelectionResize(
-        interaction.initial,
-        interaction.handle,
-        {
-          x: point.x - interaction.start.x,
-          y: point.y - interaction.start.y,
-        },
-        { width: session.media.width, height: session.media.height },
-      ),
+      normalizeSelectionGeometry({ ...interaction.initial, bounds }, imageSize),
     );
   };
 
@@ -774,16 +999,21 @@ export function CaptureApp() {
     const point = pointerToImagePoint(event, true);
     const nextSelection = point
       ? resolveSelectionResize(
-          interaction.initial,
+          interaction.initial.bounds,
           interaction.handle,
           {
             x: point.x - interaction.start.x,
             y: point.y - interaction.start.y,
           },
-          { width: session.media.width, height: session.media.height },
+          imageSize,
         )
-      : interaction.initial;
-    setSelection(nextSelection);
+      : interaction.initial.bounds;
+    setSelection(
+      normalizeSelectionGeometry(
+        { ...interaction.initial, bounds: nextSelection },
+        imageSize,
+      ),
+    );
     setSelectionDraft(null);
     selectionInteractionRef.current = null;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
@@ -824,6 +1054,22 @@ export function CaptureApp() {
     });
   }
 
+  const selectionViewportRadius =
+    activeGeometry && activeSelection && selectionViewportBounds && activeSelection.width > 0
+      ? activeGeometry.cornerRadius * (selectionViewportBounds.width / activeSelection.width)
+      : 0;
+  const selectionMaskPath =
+    selectionViewportBounds && imageViewportBounds
+      ? [
+          `M ${imageViewportBounds.x} ${imageViewportBounds.y}`,
+          `H ${imageViewportBounds.x + imageViewportBounds.width}`,
+          `V ${imageViewportBounds.y + imageViewportBounds.height}`,
+          `H ${imageViewportBounds.x}`,
+          "Z",
+          roundedRectanglePath(selectionViewportBounds, selectionViewportRadius),
+        ].join(" ")
+      : null;
+
   return (
     <main className="capture-shell">
       {imageSrc ? (
@@ -837,7 +1083,58 @@ export function CaptureApp() {
         onPointerUp={handlePointerUp}
         onPointerCancel={rollbackSelectionPointerInteraction}
         onLostPointerCapture={rollbackSelectionPointerInteraction}
+        onPointerLeave={() => {
+          if (!selectionInteractionRef.current) {
+            setHoverTarget(null);
+            setCrosshair(null);
+          }
+        }}
       />
+      {!selection && hoverViewportBounds ? (
+        <div
+          className="capture-target-preview"
+          role="img"
+          aria-label={t("screenshot.target.preview")}
+          style={{
+            left: hoverViewportBounds.x,
+            top: hoverViewportBounds.y,
+            width: hoverViewportBounds.width,
+            height: hoverViewportBounds.height,
+          }}
+        />
+      ) : null}
+      {crosshair && imageViewportBounds ? (
+        <div
+          className="capture-crosshair"
+          role="img"
+          aria-label={t("screenshot.target.guides")}
+          style={{
+            "--capture-guide-x": `${imageViewportBounds.x + (crosshair.x / imageSize.width) * imageViewportBounds.width}px`,
+            "--capture-guide-y": `${imageViewportBounds.y + (crosshair.y / imageSize.height) * imageViewportBounds.height}px`,
+            "--capture-image-left": `${imageViewportBounds.x}px`,
+            "--capture-image-top": `${imageViewportBounds.y}px`,
+            "--capture-image-width": `${imageViewportBounds.width}px`,
+            "--capture-image-height": `${imageViewportBounds.height}px`,
+          } as CSSProperties}
+        >
+          <span className="capture-guide-horizontal" />
+          <span className="capture-guide-vertical" />
+        </div>
+      ) : null}
+      {!selection && imageSrc ? (
+        <p className="capture-targeting-hint" role="status">
+          {t("screenshot.target.hint")}
+        </p>
+      ) : null}
+      {selectionMaskPath && selectionViewportBounds ? (
+        <svg className="capture-selection-chrome" aria-hidden="true">
+          <path className="capture-selection-dimming" d={selectionMaskPath} fillRule="evenodd" />
+          <path
+            className={selectionDraft ? "capture-selection-border dragging" : "capture-selection-border"}
+            d={roundedRectanglePath(selectionViewportBounds, selectionViewportRadius)}
+          />
+        </svg>
+      ) : null}
       {activeSelection && selectionViewportBounds ? (
         <div
           className={`capture-selection-frame${selectionDraft ? " dragging" : ""}${tool === "select" ? " adjustable" : ""}`}
@@ -846,12 +1143,10 @@ export function CaptureApp() {
             top: selectionViewportBounds.y,
             width: selectionViewportBounds.width,
             height: selectionViewportBounds.height,
+            borderRadius: selectionViewportRadius,
           }}
           aria-hidden="true"
         >
-          <span className="capture-selection-size">
-            {Math.round(activeSelection.width)} × {Math.round(activeSelection.height)}
-          </span>
           {CAPTURE_SELECTION_HANDLES.map(({ handle, cursor }) => (
             <span
               className={`capture-selection-handle ${handle}`}
@@ -866,6 +1161,23 @@ export function CaptureApp() {
             />
           ))}
         </div>
+      ) : null}
+      {selection && activeGeometry && selectionViewportBounds ? (
+        <SelectionGeometryControls
+          geometry={activeGeometry}
+          imageSize={imageSize}
+          viewportBounds={selectionViewportBounds}
+          viewportSize={viewportSize}
+          disabled={Boolean(selectionDraft)}
+          labels={{
+            group: t("screenshot.geometry.group"),
+            width: t("screenshot.geometry.width"),
+            height: t("screenshot.geometry.height"),
+            radius: t("screenshot.geometry.radius"),
+            invalid: t("screenshot.geometry.invalid"),
+          }}
+          onChange={(geometry) => setSelection(normalizeSelectionGeometry(geometry, imageSize))}
+        />
       ) : null}
       {textDraft ? (
         <textarea
@@ -885,7 +1197,7 @@ export function CaptureApp() {
         />
       ) : null}
       {error ? <p className="capture-error">{error}</p> : null}
-      <nav
+      {selection ? <nav
         ref={toolbarRef}
         className="capture-toolbar-live"
         aria-label={t("screenshot.toolbar.label")}
@@ -989,7 +1301,7 @@ export function CaptureApp() {
             <Check aria-hidden="true" />
           </button>
         </span>
-      </nav>
+      </nav> : null}
     </main>
   );
 }

@@ -3,7 +3,8 @@ use crate::services::screenshot::{
     init_pin_window as init_pin_window_service,
     init_screenshot_session as init_screenshot_session_service,
     prepare_screenshot_commit as prepare_screenshot_commit_service,
-    read_screenshot_media as read_screenshot_media_service, screenshot_capabilities,
+    read_screenshot_media as read_screenshot_media_service,
+    reveal_screenshot_capture as reveal_screenshot_capture_service, screenshot_capabilities,
     start_screenshot_session, upload_screenshot_commit as upload_screenshot_commit_service,
     validate_screenshot_commit_request, CaptureSessionPayload, PinPayload,
     PrepareScreenshotCommitInput, ScreenshotCancelResult, ScreenshotCapabilities,
@@ -88,6 +89,20 @@ pub async fn read_screenshot_media(
         retryable: true,
     })??;
     Ok(tauri::ipc::Response::new(bytes))
+}
+
+#[tauri::command]
+pub async fn reveal_screenshot_capture(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    session_id: String,
+) -> Result<(), ScreenshotError> {
+    let label = window.label().to_string();
+    tauri::async_runtime::spawn_blocking(move || {
+        reveal_screenshot_capture_service(app, &label, session_id)
+    })
+    .await
+    .map_err(|_| worker_error("screenshot.reveal_worker", "截图窗口显示任务异常结束"))?
 }
 
 #[tauri::command]

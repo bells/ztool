@@ -89,10 +89,24 @@ export interface ScreenshotMediaDescriptor {
   expiresAtMs: number | null;
 }
 
+export interface ScreenshotSourceBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface ScreenshotTargetCandidate {
+  id: string;
+  kind: "window";
+  bounds: ScreenshotSourceBounds;
+}
+
 export interface CaptureSession {
   sessionId: string;
   initialAction: "copy" | "save";
   media: ScreenshotMediaDescriptor;
+  targets: ScreenshotTargetCandidate[];
 }
 
 export interface ScreenshotUploadLease {
