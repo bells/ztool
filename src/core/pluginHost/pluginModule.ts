@@ -2,7 +2,7 @@ import type { ComponentType } from "react";
 import type { ResolvedLanguage } from "../preferences/i18n";
 import type { PluginManifest } from "./contracts";
 
-export type BundledPluginSurface = "capture" | "pin" | "launcher" | "paper";
+export type BundledPluginSurface = "capture" | "pin" | "launcher" | "paper" | "snap-menu";
 
 export type PluginTranslator = (key: string) => string;
 

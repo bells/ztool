@@ -43,12 +43,17 @@ import {
 import { resolveCaptureHotkey } from "./captureHotkeys";
 import { captureReducer, createId, initialHistoryState } from "./captureReducer";
 import {
+  CAPTURE_SELECTION_HANDLES,
   createFullImageSelection,
   imageBoundsToViewportBounds,
   isPointInBounds,
+  moveSelectionBy,
   resolveSelectPointerTarget,
   resolveSelectionDrag,
+  resolveSelectionNudge,
+  resolveSelectionResize,
   viewportPointToImagePoint,
+  type SelectionResizeHandle,
   type Size,
 } from "./captureSelectionModel";
 import {
@@ -91,6 +96,21 @@ interface CaptureToolDescriptor {
   labelKey: TranslationKey;
   Icon: LucideIcon;
 }
+
+type SelectionPointerInteraction =
+  | {
+      kind: "create";
+      pointerId: number;
+      start: Point;
+      initial: Bounds;
+    }
+  | {
+      kind: "resize";
+      pointerId: number;
+      start: Point;
+      initial: Bounds;
+      handle: SelectionResizeHandle;
+    };
 
 const tools: CaptureToolDescriptor[] = [
   { tool: "select", labelKey: "screenshot.toolbar.select", Icon: MousePointer2 },
@@ -139,8 +159,7 @@ export function CaptureApp() {
   const [error, setError] = useState<string | null>(null);
   const [isCommitting, setIsCommitting] = useState(false);
   const dragStartRef = useRef<Point | null>(null);
-  const selectionDragStartRef = useRef<Point | null>(null);
-  const selectionBeforeDragRef = useRef<Bounds | null>(null);
+  const selectionInteractionRef = useRef<SelectionPointerInteraction | null>(null);
   const draftIdRef = useRef<string | null>(null);
   const draftRef = useRef<DraftAnnotation>(null);
   const textDraftRef = useRef<TextDraft | null>(null);
@@ -287,7 +306,7 @@ export function CaptureApp() {
   }, [baseImage, draft, history.annotations, session]);
 
   const pointerToImagePoint = useCallback(
-    (event: ReactPointerEvent): Point | null => {
+    (event: ReactPointerEvent, clampToImage = false): Point | null => {
       if (!session || !imageRef.current) {
         return null;
       }
@@ -297,6 +316,7 @@ export function CaptureApp() {
         { x: event.clientX - rect.left, y: event.clientY - rect.top },
         { width: session.media.width, height: session.media.height },
         { width: rect.width, height: rect.height },
+        clampToImage,
       );
     },
     [session],
@@ -393,14 +413,13 @@ export function CaptureApp() {
   );
 
   const cancel = useCallback(() => {
-    if (draft || textDraft || selectionDraft) {
+    if (draft || textDraft || selectionDraft || selectionInteractionRef.current) {
       setDraft(null);
       draftRef.current = null;
       updateTextDraft(null);
       setSelectionDraft(null);
       dragStartRef.current = null;
-      selectionDragStartRef.current = null;
-      selectionBeforeDragRef.current = null;
+      selectionInteractionRef.current = null;
       draftIdRef.current = null;
       return;
     }
@@ -417,11 +436,36 @@ export function CaptureApp() {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       const target = event.target;
-      if (
+      const editableTarget =
         target instanceof HTMLInputElement ||
         target instanceof HTMLTextAreaElement ||
-        (target instanceof HTMLElement && target.isContentEditable)
-      ) {
+        (target instanceof HTMLElement && target.isContentEditable);
+      const selectionDelta = resolveSelectionNudge({
+        key: event.key,
+        selectToolActive: tool === "select",
+        editableTarget,
+        composing: event.isComposing || Boolean(textDraftRef.current),
+        pointerActive: Boolean(selectionInteractionRef.current),
+        metaKey: event.metaKey,
+        ctrlKey: event.ctrlKey,
+        altKey: event.altKey,
+        shiftKey: event.shiftKey,
+        repeat: event.repeat,
+      });
+      if (selectionDelta && session) {
+        event.preventDefault();
+        setSelection((current) =>
+          current
+            ? moveSelectionBy(current, selectionDelta, {
+                width: session.media.width,
+                height: session.media.height,
+              })
+            : current,
+        );
+        return;
+      }
+
+      if (editableTarget) {
         return;
       }
 
@@ -444,7 +488,7 @@ export function CaptureApp() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [cancel]);
+  }, [cancel, session, tool]);
 
   function createDraft(start: Point, point: Point): AnnotationObject {
     const id = draftIdRef.current ?? createId(tool);
@@ -543,8 +587,12 @@ export function CaptureApp() {
       }
       event.currentTarget.setPointerCapture(event.pointerId);
       dispatch({ type: "select", id: null });
-      selectionDragStartRef.current = point;
-      selectionBeforeDragRef.current = selection;
+      selectionInteractionRef.current = {
+        kind: "create",
+        pointerId: event.pointerId,
+        start: point,
+        initial: selection,
+      };
       setSelectionDraft(null);
       return;
     }
@@ -572,16 +620,19 @@ export function CaptureApp() {
       return;
     }
 
-    const selectionStart = selectionDragStartRef.current;
-    const previousSelection = selectionBeforeDragRef.current;
-    if (selectionStart && previousSelection && session) {
+    const interaction = selectionInteractionRef.current;
+    if (
+      interaction?.kind === "create" &&
+      interaction.pointerId === event.pointerId &&
+      session
+    ) {
       const nextSelection = resolveSelectionDrag(
-        previousSelection,
-        selectionStart,
+        interaction.initial,
+        interaction.start,
         point,
         { width: session.media.width, height: session.media.height },
       );
-      setSelectionDraft(nextSelection === previousSelection ? null : nextSelection);
+      setSelectionDraft(nextSelection === interaction.initial ? null : nextSelection);
       return;
     }
 
@@ -595,21 +646,23 @@ export function CaptureApp() {
 
   const handlePointerUp = (event: ReactPointerEvent<HTMLCanvasElement>) => {
     const point = pointerToImagePoint(event);
-    const selectionStart = selectionDragStartRef.current;
-    const previousSelection = selectionBeforeDragRef.current;
-    if (selectionStart && previousSelection && session) {
+    const interaction = selectionInteractionRef.current;
+    if (
+      interaction?.kind === "create" &&
+      interaction.pointerId === event.pointerId &&
+      session
+    ) {
       const nextSelection = point
         ? resolveSelectionDrag(
-            previousSelection,
-            selectionStart,
+            interaction.initial,
+            interaction.start,
             point,
             { width: session.media.width, height: session.media.height },
           )
-        : previousSelection;
+        : interaction.initial;
       setSelection(nextSelection);
       setSelectionDraft(null);
-      selectionDragStartRef.current = null;
-      selectionBeforeDragRef.current = null;
+      selectionInteractionRef.current = null;
       if (event.currentTarget.hasPointerCapture(event.pointerId)) {
         event.currentTarget.releasePointerCapture(event.pointerId);
       }
@@ -637,6 +690,111 @@ export function CaptureApp() {
     }
 
     dispatch({ type: "add", annotation: currentDraft });
+  };
+
+  const rollbackSelectionPointerInteraction = (event: ReactPointerEvent) => {
+    const interaction = selectionInteractionRef.current;
+    if (!interaction || interaction.pointerId !== event.pointerId) {
+      return;
+    }
+
+    selectionInteractionRef.current = null;
+    setSelectionDraft(null);
+  };
+
+  const handleResizePointerDown = (
+    event: ReactPointerEvent<HTMLSpanElement>,
+    handle: SelectionResizeHandle,
+  ) => {
+    if (tool !== "select" || !session || !selection) {
+      return;
+    }
+
+    const point = pointerToImagePoint(event, true);
+    if (!point) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dispatch({ type: "select", id: null });
+    selectionInteractionRef.current = {
+      kind: "resize",
+      pointerId: event.pointerId,
+      start: point,
+      initial: selection,
+      handle,
+    };
+    setSelectionDraft(null);
+  };
+
+  const handleResizePointerMove = (event: ReactPointerEvent<HTMLSpanElement>) => {
+    const interaction = selectionInteractionRef.current;
+    if (
+      interaction?.kind !== "resize" ||
+      interaction.pointerId !== event.pointerId ||
+      !session
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    const point = pointerToImagePoint(event, true);
+    if (!point) {
+      return;
+    }
+
+    setSelectionDraft(
+      resolveSelectionResize(
+        interaction.initial,
+        interaction.handle,
+        {
+          x: point.x - interaction.start.x,
+          y: point.y - interaction.start.y,
+        },
+        { width: session.media.width, height: session.media.height },
+      ),
+    );
+  };
+
+  const handleResizePointerUp = (event: ReactPointerEvent<HTMLSpanElement>) => {
+    const interaction = selectionInteractionRef.current;
+    if (
+      interaction?.kind !== "resize" ||
+      interaction.pointerId !== event.pointerId ||
+      !session
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    const point = pointerToImagePoint(event, true);
+    const nextSelection = point
+      ? resolveSelectionResize(
+          interaction.initial,
+          interaction.handle,
+          {
+            x: point.x - interaction.start.x,
+            y: point.y - interaction.start.y,
+          },
+          { width: session.media.width, height: session.media.height },
+        )
+      : interaction.initial;
+    setSelection(nextSelection);
+    setSelectionDraft(null);
+    selectionInteractionRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+
+  const handleResizePointerCancel = (event: ReactPointerEvent<HTMLSpanElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    rollbackSelectionPointerInteraction(event);
   };
 
   function commitTextDraft() {
@@ -677,10 +835,12 @@ export function CaptureApp() {
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
+        onPointerCancel={rollbackSelectionPointerInteraction}
+        onLostPointerCapture={rollbackSelectionPointerInteraction}
       />
       {activeSelection && selectionViewportBounds ? (
         <div
-          className={selectionDraft ? "capture-selection-frame dragging" : "capture-selection-frame"}
+          className={`capture-selection-frame${selectionDraft ? " dragging" : ""}${tool === "select" ? " adjustable" : ""}`}
           style={{
             left: selectionViewportBounds.x,
             top: selectionViewportBounds.y,
@@ -692,17 +852,18 @@ export function CaptureApp() {
           <span className="capture-selection-size">
             {Math.round(activeSelection.width)} × {Math.round(activeSelection.height)}
           </span>
-          {[
-            "top-left",
-            "top",
-            "top-right",
-            "right",
-            "bottom-right",
-            "bottom",
-            "bottom-left",
-            "left",
-          ].map((position) => (
-            <span className={`capture-selection-handle ${position}`} key={position} />
+          {CAPTURE_SELECTION_HANDLES.map(({ handle, cursor }) => (
+            <span
+              className={`capture-selection-handle ${handle}`}
+              data-handle={handle}
+              key={handle}
+              style={{ cursor }}
+              onPointerDown={(event) => handleResizePointerDown(event, handle)}
+              onPointerMove={handleResizePointerMove}
+              onPointerUp={handleResizePointerUp}
+              onPointerCancel={handleResizePointerCancel}
+              onLostPointerCapture={handleResizePointerCancel}
+            />
           ))}
         </div>
       ) : null}

@@ -27,6 +27,40 @@ pub async fn start_screenshot(
 }
 
 #[tauri::command]
+pub async fn start_snap_menu_screenshot(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+) -> Result<ScreenshotStartResult, ScreenshotError> {
+    require_snap_menu_window(window.label())?;
+    crate::services::snap_menu::hide_snap_menu_window(&app).map_err(|error| ScreenshotError {
+        code: "screenshot.snap_menu_hide".into(),
+        message: error,
+        retryable: true,
+    })?;
+
+    let screenshot_app = app.clone();
+    let result = match tauri::async_runtime::spawn_blocking(move || {
+        start_screenshot_session(screenshot_app, "copy".into())
+    })
+    .await
+    {
+        Ok(result) => result,
+        Err(_) => {
+            let _ = crate::services::snap_menu::restore_snap_menu_window(&app);
+            return Err(worker_error(
+                "screenshot.start_worker",
+                "截图启动任务异常结束",
+            ));
+        }
+    };
+
+    if result.is_err() {
+        let _ = crate::services::snap_menu::restore_snap_menu_window(&app);
+    }
+    result
+}
+
+#[tauri::command]
 pub fn init_screenshot_session(
     app: tauri::AppHandle,
     window: tauri::WebviewWindow,
@@ -148,6 +182,28 @@ fn screenshot_header<'a>(
         message: format!("缺少截图提交请求头: {name}"),
         retryable: false,
     })
+}
+
+fn require_snap_menu_window(window_label: &str) -> Result<(), ScreenshotError> {
+    (window_label == crate::services::snap_menu::SNAP_MENU_WINDOW_LABEL)
+        .then_some(())
+        .ok_or_else(|| ScreenshotError {
+            code: "screenshot.snap_menu_scope".into(),
+            message: "当前命令仅允许 Zero Snap 菜单调用".into(),
+            retryable: false,
+        })
+}
+
+#[cfg(test)]
+mod snap_menu_tests {
+    use super::*;
+
+    #[test]
+    fn snap_menu_handoff_rejects_other_windows() {
+        assert!(require_snap_menu_window("snap-menu").is_ok());
+        let error = require_snap_menu_window("main").expect_err("main must not invoke handoff");
+        assert_eq!(error.code, "screenshot.snap_menu_scope");
+    }
 }
 
 fn optional_screenshot_header<'a>(

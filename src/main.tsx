@@ -39,7 +39,7 @@ async function loadRoutedApp(): Promise<{ default: ComponentType }> {
 function isBundledPluginSurface(
   surface: string,
 ): surface is BundledPluginSurface {
-  return ["capture", "pin", "launcher", "paper"].includes(surface);
+  return ["capture", "pin", "launcher", "paper", "snap-menu"].includes(surface);
 }
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(

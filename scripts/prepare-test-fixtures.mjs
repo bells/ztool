@@ -50,6 +50,7 @@ const sources = [
   "src/plugins/screenshot/capture/captureSerialize.ts",
   "src/plugins/screenshot/capture/captureToolbarModel.ts",
   "src/plugins/screenshot/i18n.ts",
+  "src/plugins/screenshot/snapMenuModel.ts",
   "src/plugins/screenshot/screenshotMeta.ts",
   "src/components/statusBarIconSources.ts",
   "src/services/appWindowService.ts",

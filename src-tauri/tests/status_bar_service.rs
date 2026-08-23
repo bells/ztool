@@ -378,7 +378,7 @@ fn assert_physical_rect(rect: tauri::Rect, expected: (i32, i32, u32, u32)) {
 }
 
 #[test]
-fn native_status_bar_activation_specializes_only_launch_and_paper() {
+fn native_status_bar_activation_specializes_only_launch_paper_and_snap() {
     assert_eq!(
         native_status_bar_activation(Some(ZERO_LAUNCH_PLUGIN_ID)),
         NativeStatusBarActivation::Launch
@@ -387,12 +387,11 @@ fn native_status_bar_activation_specializes_only_launch_and_paper() {
         native_status_bar_activation(Some(ZERO_PAPER_PLUGIN_ID)),
         NativeStatusBarActivation::Paper
     );
-    for plugin_name in [
-        Some(ZERO_SNAP_PLUGIN_ID),
-        Some(ZERO_AWAKE_PLUGIN_ID),
-        Some("market.tool"),
-        None,
-    ] {
+    assert_eq!(
+        native_status_bar_activation(Some(ZERO_SNAP_PLUGIN_ID)),
+        NativeStatusBarActivation::Snap
+    );
+    for plugin_name in [Some(ZERO_AWAKE_PLUGIN_ID), Some("market.tool"), None] {
         assert_eq!(
             native_status_bar_activation(plugin_name),
             NativeStatusBarActivation::ExistingAction

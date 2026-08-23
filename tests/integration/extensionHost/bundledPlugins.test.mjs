@@ -32,6 +32,7 @@ test("dedicated surfaces and panels stay behind plugin-owned dynamic imports", (
   const screenshot = fs.readFileSync("src/plugins/screenshot/plugin.tsx", "utf8");
   assert.match(screenshot, /capture:\s*\(\)\s*=>\s*import\("\.\/capture\/CaptureApp"\)/);
   assert.match(screenshot, /pin:\s*\(\)\s*=>\s*import\("\.\/capture\/PinApp"\)/);
+  assert.match(screenshot, /"snap-menu":\s*\(\)\s*=>\s*import\("\.\/SnapMenuApp"\)/);
   const launch = fs.readFileSync("src/plugins/quickLauncher/plugin.tsx", "utf8");
   assert.match(launch, /launcher:\s*\(\)\s*=>\s*import\("\.\/QuickLauncherApp"\)/);
   const paper = fs.readFileSync("src/plugins/bingWallpaper/plugin.tsx", "utf8");

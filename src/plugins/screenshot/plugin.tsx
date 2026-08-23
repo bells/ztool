@@ -53,5 +53,6 @@ export const screenshotPlugin: BundledPluginModule = {
   surfaces: {
     capture: () => import("./capture/CaptureApp"),
     pin: () => import("./capture/PinApp"),
+    "snap-menu": () => import("./SnapMenuApp"),
   },
 };

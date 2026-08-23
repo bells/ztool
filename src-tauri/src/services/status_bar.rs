@@ -14,7 +14,7 @@ use tauri_plugin_positioner::on_tray_event;
 
 use crate::brand::{
     canonical_first_party_plugin_id, PRIMARY_STATUS_ITEM_ID, PRODUCT_NAME, ZERO_AWAKE_PLUGIN_ID,
-    ZERO_LAUNCH_PLUGIN_ID, ZERO_PAPER_PLUGIN_ID,
+    ZERO_LAUNCH_PLUGIN_ID, ZERO_PAPER_PLUGIN_ID, ZERO_SNAP_PLUGIN_ID,
 };
 use crate::plugins::contracts::{
     PluginContributionStatusBarItem, PluginHealth, PluginRecord, PluginSource, StatusBarAction,
@@ -101,6 +101,7 @@ pub enum StatusBarActionEffect {
 pub enum NativeStatusBarActivation {
     Launch,
     Paper,
+    Snap,
     ExistingAction,
 }
 
@@ -561,6 +562,7 @@ pub fn native_status_bar_activation(plugin_name: Option<&str>) -> NativeStatusBa
     match plugin_name.map(canonical_first_party_plugin_id) {
         Some(ZERO_LAUNCH_PLUGIN_ID) => NativeStatusBarActivation::Launch,
         Some(ZERO_PAPER_PLUGIN_ID) => NativeStatusBarActivation::Paper,
+        Some(ZERO_SNAP_PLUGIN_ID) => NativeStatusBarActivation::Snap,
         _ => NativeStatusBarActivation::ExistingAction,
     }
 }
@@ -777,6 +779,19 @@ fn run_grouped_status_item_action(
             .and_then(paper_window_anchor);
             crate::commands::bing_wallpaper::toggle_paper_window(app, anchor)
         }
+        NativeStatusBarActivation::Snap => {
+            let records = plugin_records(app)?;
+            let settings = ensure_status_bar_settings(app, &records)?;
+            let items = status_bar_items(app)?;
+            let anchor = grouped_status_item_cell_rect(
+                &items,
+                settings.plugin_items_collapsed,
+                &item.id,
+                rect,
+            )
+            .and_then(tool_window_anchor);
+            crate::services::snap_menu::toggle_snap_menu_window(app, anchor)
+        }
         NativeStatusBarActivation::ExistingAction => {
             handle_status_bar_action(app.clone(), item.action, item.plugin_name)
         }
@@ -786,9 +801,15 @@ fn run_grouped_status_item_action(
 fn paper_window_anchor(
     rect: tauri::Rect,
 ) -> Option<crate::commands::bing_wallpaper::PaperWindowAnchor> {
+    tool_window_anchor(rect)
+}
+
+fn tool_window_anchor(
+    rect: tauri::Rect,
+) -> Option<crate::services::tool_windows::ToolWindowAnchor> {
     match (rect.position, rect.size) {
         (tauri::Position::Physical(position), tauri::Size::Physical(size)) => {
-            Some(crate::commands::bing_wallpaper::PaperWindowAnchor {
+            Some(crate::services::tool_windows::ToolWindowAnchor {
                 x: position.x,
                 y: position.y,
                 width: size.width,
@@ -1313,6 +1334,51 @@ mod tests {
             anchor.size,
             tauri::Size::Physical(size) if size.width == 44 && size.height == 44
         ));
+    }
+
+    #[test]
+    fn native_snap_activation_uses_its_dedicated_menu_only_on_the_native_path() {
+        assert_eq!(
+            native_status_bar_activation(Some(ZERO_SNAP_PLUGIN_ID)),
+            NativeStatusBarActivation::Snap
+        );
+        assert_eq!(
+            status_bar_action_effects(
+                &StatusBarAction {
+                    action_type: StatusBarActionType::StartScreenshot,
+                    command_id: Some("zero.snap.capture".into()),
+                },
+                Some(ZERO_SNAP_PLUGIN_ID),
+            ),
+            vec![StatusBarActionEffect::StartScreenshotCopy]
+        );
+    }
+
+    #[test]
+    fn grouped_snap_anchor_preserves_the_exact_clicked_cell() {
+        let mut launch = primary_item();
+        launch.id = "zero.launch.status".into();
+        launch.plugin_name = Some(ZERO_LAUNCH_PLUGIN_ID.into());
+        let mut snap = primary_item();
+        snap.id = "zero.snap.status".into();
+        snap.plugin_name = Some(ZERO_SNAP_PLUGIN_ID.into());
+        let items = vec![launch, snap];
+        let grouped_rect = tauri::Rect {
+            position: tauri::PhysicalPosition::new(-132, 0).into(),
+            size: tauri::PhysicalSize::new(132, 44).into(),
+        };
+
+        let cell = grouped_status_item_cell_rect(&items, false, "zero.snap.status", grouped_rect)
+            .expect("Snap should resolve to its grouped status-bar cell");
+        assert_eq!(
+            tool_window_anchor(cell),
+            Some(crate::services::tool_windows::ToolWindowAnchor {
+                x: -88,
+                y: 0,
+                width: 44,
+                height: 44,
+            })
+        );
     }
 
     #[test]

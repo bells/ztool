@@ -1,8 +1,10 @@
 use tauri::{Manager, PhysicalPosition, PhysicalRect, PhysicalSize, WebviewUrl, WindowEvent};
-use tauri_plugin_positioner::{Position, WindowExt};
 
 use crate::services::surface_activity::{hide_surface, show_surface};
-use crate::services::tool_windows::{hide_tool_window, prepare_tool_window, ToolWindowKind};
+use crate::services::tool_windows::{
+    anchored_tool_window_position, hide_tool_window, position_anchored_tool_window,
+    prepare_tool_window, ToolWindowAnchor, ToolWindowKind, ToolWindowLogicalSize,
+};
 
 pub const PAPER_WINDOW_LABEL: &str = ToolWindowKind::Paper.label();
 const PAPER_WINDOW_GAP: i32 = 6;
@@ -19,13 +21,7 @@ pub struct PaperWindowOptions {
     pub skip_taskbar: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PaperWindowAnchor {
-    pub x: i32,
-    pub y: i32,
-    pub width: u32,
-    pub height: u32,
-}
+pub type PaperWindowAnchor = ToolWindowAnchor;
 
 pub fn paper_window_options() -> PaperWindowOptions {
     PaperWindowOptions {
@@ -45,28 +41,7 @@ pub fn paper_window_position(
     window_size: PhysicalSize<u32>,
     work_area: PhysicalRect<i32, u32>,
 ) -> Option<PhysicalPosition<i32>> {
-    if anchor.width == 0
-        || anchor.height == 0
-        || window_size.width == 0
-        || window_size.height == 0
-        || work_area.size.width < window_size.width
-        || work_area.size.height < window_size.height
-    {
-        return None;
-    }
-
-    let anchor_center_x = i64::from(anchor.x) + i64::from(anchor.width) / 2;
-    let preferred_x = anchor_center_x - i64::from(window_size.width) / 2;
-    let preferred_y = i64::from(anchor.y) + i64::from(anchor.height) + i64::from(PAPER_WINDOW_GAP);
-    let min_x = i64::from(work_area.position.x);
-    let min_y = i64::from(work_area.position.y);
-    let max_x = min_x + i64::from(work_area.size.width - window_size.width);
-    let max_y = min_y + i64::from(work_area.size.height - window_size.height);
-
-    Some(PhysicalPosition::new(
-        preferred_x.clamp(min_x, max_x) as i32,
-        preferred_y.clamp(min_y, max_y) as i32,
-    ))
+    anchored_tool_window_position(anchor, window_size, work_area, PAPER_WINDOW_GAP)
 }
 
 pub fn hide_paper_window(app: &tauri::AppHandle) -> Result<(), String> {
@@ -139,33 +114,16 @@ fn position_paper_window(
     anchor: Option<PaperWindowAnchor>,
     options: PaperWindowOptions,
 ) -> Result<(), String> {
-    if let Some(anchor) = anchor {
-        let monitor = window
-            .monitor_from_point(
-                f64::from(anchor.x) + f64::from(anchor.width) / 2.0,
-                f64::from(anchor.y) + f64::from(anchor.height) / 2.0,
-            )
-            .map_err(|error| format!("failed to resolve Zero Paper monitor: {error}"))?;
-        if let Some(monitor) = monitor {
-            let scale_factor = monitor.scale_factor();
-            let window_size = PhysicalSize::new(
-                (options.width * scale_factor).round() as u32,
-                (options.height * scale_factor).round() as u32,
-            );
-            if let Some(position) = paper_window_position(anchor, window_size, *monitor.work_area())
-            {
-                return window
-                    .set_position(position)
-                    .map_err(|error| format!("failed to position Zero Paper window: {error}"));
-            }
-        }
-    }
-
-    window
-        .as_ref()
-        .window()
-        .move_window(Position::TrayCenter)
-        .map_err(|error| format!("failed to place Zero Paper near the status bar: {error}"))
+    position_anchored_tool_window(
+        window,
+        anchor,
+        ToolWindowLogicalSize {
+            width: options.width,
+            height: options.height,
+        },
+        PAPER_WINDOW_GAP,
+        "Zero Paper",
+    )
 }
 
 #[cfg(test)]

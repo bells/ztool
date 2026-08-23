@@ -269,6 +269,7 @@ pub fn run() {
             commands::quick_launcher::hide_quick_launcher_window,
             commands::screenshot::get_screenshot_capabilities,
             commands::screenshot::start_screenshot,
+            commands::screenshot::start_snap_menu_screenshot,
             commands::screenshot::init_screenshot_session,
             commands::screenshot::read_screenshot_media,
             commands::screenshot::prepare_screenshot_commit,
